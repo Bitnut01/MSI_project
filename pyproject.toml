@@ -1,0 +1,26 @@
+[project]
+name = "MSI_project"
+version = "0.1.0"
+description = "Default template for PDM package"
+authors = [
+    {name = "Bitnut01", email = "wmkuchar@gmail.com"},
+]
+dependencies = ["numpy>=2.2.6", "scipy>=1.15.3", "numba>=0.63.1", "matplotlib>=3.10.8", "pillow>=11.3.0", "psutil>=7.2.2", "tqdm>=4.67.1", "pygame>=2.6.1", "arcade>=3.3.3", "dataclasses-json>=0.6.7", "pydantic>=2.12.5", "colorlog>=6.10.1", "httpx>=0.28.1", "fastapi>=0.128.0", "uvicorn>=0.40.0"]
+requires-python = "==3.10.*"
+readme = "README.md"
+license = {text = "MIT"}
+
+
+[tool.pdm]
+distribution = false
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-cov>=7.0.0",
+    "black>=26.1.0",
+    "flake8>=7.3.0",
+    "mypy>=1.19.1",
+    "jupyterlab>=4.5.3",
+    "ipython>=8.38.0",
+]
