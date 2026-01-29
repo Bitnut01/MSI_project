@@ -4,7 +4,7 @@ __pycache__/
 *$py.class
 
 # Logs
-MSI_PROJECT/MSI_project/02_FRAKCJA_SILNIKA/logs/
+logs/
 
 # C extensions
 *.so
@@ -18,7 +18,7 @@ downloads/
 eggs/
 .eggs/
 lib/
-lib64/
+lib64
 parts/
 sdist/
 var/
