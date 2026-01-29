@@ -1,3 +1,75 @@
+## Jak został utworzony fork
+1. Zrobiono **fork** oryginalnego repozytorium na GitHubie  
+2. Sforkowane repo zostało sklonowane lokalnie  
+3. Oryginalne repo dodano jako `upstream`  
+4. Utworzono własną gałąź startową z taga release (np. `v1.1_beta`)
+
+---
+
+## Setup lokalny
+```bash
+git clone https://github.com/TWOJ_USER/REPO.git
+cd REPO
+git remote add upstream https://github.com/ORIGINAL_OWNER/REPO.git
+git fetch upstream --tags
+git checkout -b my-main v1.1_beta
+git push origin my-main
+```
+
+---
+
+## Jak pobierać update’y z oryginalnego repo
+```bash
+git fetch upstream
+git rebase upstream/main
+```
+
+Jeśli upstream wypuści nowy release (tag):
+```bash
+git fetch upstream --tags
+git rebase v1.2_beta
+```
+
+---
+
+## Praca nad zmianami
+```bash
+git checkout -b feature/my-change
+# zmiany
+git add .
+git commit -m "Opis zmian"
+git push origin feature/my-change
+```
+
+---
+
+## Finalny merge do oryginalnego repo (upstream)
+1. Upewnij się, że gałąź jest aktualna:
+```bash
+git fetch upstream
+git rebase upstream/main
+```
+
+2. Wypchnij zmiany:
+```bash
+git push origin feature/my-change
+```
+
+3. Na GitHubie:
+- Otwórz **Pull Request**
+- Kierunek:  
+  `TWOJ_USER:feature/my-change → ORIGINAL_OWNER:main`
+
+---
+
+## Uwagi
+- Nie commituj bezpośrednio na tagu (tag = punkt w historii)
+- Aktualizacje zawsze pobieraj z `upstream`
+- Do upstream trafiają zmiany **tylko przez Pull Request**
+
+
+---
+
 # MSI_project
 
 # 1. Założenia Ogólne i Struktura Projektu
