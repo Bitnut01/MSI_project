@@ -45,7 +45,7 @@ from typing import Any, Dict, List, Optional, Union, cast
 
 import httpx
 
-from ..structures import MapInfo, Position, PowerUpData, PowerUpType
+from ..structures import MapInfo, Position, PowerUpData, PowerUpType, AmmoType
 from ..tank.base_tank import Tank
 from ..tank.heavy_tank import HeavyTank
 from ..tank.light_tank import LightTank
@@ -108,17 +108,19 @@ class TankScoreboard:
 class GameLoop:
     """Główna klasa pętli gry z fazami inicjalizacji, loop i końca."""
 
-    def __init__(self, config: Optional[GameConfig] = None, headless: bool = False):
+    def __init__(self, config: Optional[GameConfig] = None, headless: bool = False, spawn_points: Optional[Dict[int, List[tuple]]] = None):
         """
         Inicjalizacja GameLoop.
 
         Args:
             config: Konfiguracja gry (opcjonalna)
             headless: Czy uruchomić w trybie bez interfejsu graficznego
+            spawn_points: Opcjonalne punkty spawnów dla drużyn {team_id: [(x,y), ...]}
         """
         self.game_core = GameCore(config) if config else create_default_game()
         self.logger = get_logger()
         self.headless = headless
+        self.spawn_points = spawn_points
 
         # Engine components
         self.map_loader = MapLoader()
@@ -504,6 +506,13 @@ class GameLoop:
         Returns:
             Spawn position (clear of obstacles)
         """
+        # Sprawdź czy zdefiniowano własne punkty spawnu
+        if self.spawn_points and team in self.spawn_points:
+            points = self.spawn_points[team]
+            if index < len(points):
+                coords = points[index]
+                return Position(float(coords[0]), float(coords[1]))
+
         if not self.map_info or not self.map_info.size:
             self.logger.warning("MapInfo not available for spawn, using default config size.")
             map_width = self.game_core.config.map_config.width
@@ -883,6 +892,7 @@ class GameLoop:
                 {
                     "id": getattr(o, "_id", ""),
                     "position": {"x": o._position.x, "y": o._position.y},
+                    "type": getattr(o._obstacle_type, "name", str(o._obstacle_type)),
                     "is_destructible": o.is_destructible,
                 }
                 for o in sensor_data.seen_obstacles
@@ -890,6 +900,9 @@ class GameLoop:
             "seen_terrains": [
                 {
                     "position": {"x": t._position.x, "y": t._position.y},
+                    "type": t._terrain_type,
+                    "speed_modifier": t._movement_speed_modifier,
+                    "dmg": t._deal_damage,
                 }
                 for t in sensor_data.seen_terrains
             ],
@@ -911,11 +924,19 @@ class GameLoop:
         actions_converted = {}
         for tank_id, action_dict in agent_actions.items():
             try:
+                ammo_str = action_dict.get("ammo_to_load")
+                ammo_enum = None
+                if ammo_str:
+                    # Clean up string just in case (e.g. "AmmoType.HEAVY" -> "HEAVY")
+                    clean_str = str(ammo_str).replace("AmmoType.", "").upper()
+                    if clean_str in AmmoType.__members__:
+                        ammo_enum = AmmoType[clean_str]
+
                 actions_converted[tank_id] = ActionCommand(
                     barrel_rotation_angle=action_dict.get("barrel_rotation_angle", 0.0),
                     heading_rotation_angle=action_dict.get("heading_rotation_angle", 0.0),
                     move_speed=action_dict.get("move_speed", 0.0),
-                    ammo_to_load=None,  # TODO: Parse ammo type
+                    ammo_to_load=ammo_enum,
                     should_fire=action_dict.get("should_fire", False)
                 )
             except Exception as e:

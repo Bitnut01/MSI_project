@@ -48,9 +48,11 @@ except ImportError as e:
 
 # --- Stałe Konfiguracyjne Grafiki ---
 LOG_LEVEL = "DEBUG"
-MAP_SEED = "open.csv"
+MAP_SEED = "symmetric.csv"
+TEAM_A_SPAWN_POINTS = [(15, 15), (15, 60), (15, 95), (15, 165), (15, 195)]  # Współrzędne (x, y)
+TEAM_B_SPAWN_POINTS = [(185, 15), (185, 60), (185, 95), (185, 165), (185, 195)] # Współrzędne (x, y) na Grass dla drużyny B
 TARGET_FPS = 60
-SCALE = 2  # Współczynnik skalowania grafiki (wszystko będzie 2x większe)
+SCALE = 5  # Współczynnik skalowania grafiki (wszystko będzie 4x większe)
 TILE_SIZE = 10  # To MUSI być zgodne z domyślną wartością w map_loader.py
 AGENT_NAME = "random_agent.py" # Nazwa pliku agenta
 
@@ -373,7 +375,7 @@ def draw_ui(screen: pygame.Surface, font: pygame.font.Font, game_loop: GameLoop,
         current_y += hp_bar_height + 10
 
         # --- HP Text ---
-        hp_text = f"{tank.hp} / {tank._max_hp}"
+        hp_text = f"{round(tank.hp,1)} / {tank._max_hp}"
         hp_surf = detail_font.render(hp_text, True, (255, 255, 255))
         hp_rect = hp_surf.get_rect(center=(panel1_x, current_y))
         screen.blit(hp_surf, hp_rect)
@@ -436,7 +438,7 @@ def draw_ui(screen: pygame.Surface, font: pygame.font.Font, game_loop: GameLoop,
         current_y += hp_bar_height + 10
 
         # --- HP Text ---
-        hp_text = f"{tank.hp} / {tank._max_hp}"
+        hp_text = f"{round(tank.hp,1)} / {tank._max_hp}"
         hp_surf = detail_font.render(hp_text, True, (255, 255, 255))
         hp_rect = hp_surf.get_rect(center=(panel2_x, current_y))
         screen.blit(hp_surf, hp_rect)
@@ -500,7 +502,7 @@ def draw_ui(screen: pygame.Surface, font: pygame.font.Font, game_loop: GameLoop,
         current_y += hp_bar_height + 10
 
         # --- HP Text ---
-        hp_text = f"{tank.hp} / {tank._max_hp}"
+        hp_text = f"{round(tank.hp,1)} / {tank._max_hp}"
         hp_surf = detail_font.render(hp_text, True, (255, 255, 255))
         hp_rect = hp_surf.get_rect(center=(panel2_x, current_y))
         screen.blit(hp_surf, hp_rect)
@@ -551,7 +553,13 @@ def main():
         return
 
     # --- Inicjalizacja Gry ---
-    game_loop = GameLoop(headless=False)
+    game_loop = GameLoop(
+        headless=False,
+        spawn_points={
+            1: TEAM_A_SPAWN_POINTS,
+            2: TEAM_B_SPAWN_POINTS
+        }
+    )
 
     try:
         # 1. Uruchomienie serwerów agentów (teraz używamy random_agent.py)
@@ -577,11 +585,9 @@ def main():
         map_render_width = map_engine_width * SCALE
         map_render_height = map_engine_height * SCALE
 
-        # Ustaw rozmiar okna w proporcjach 16:9, aby zmieścić mapę i panele boczne
-        window_height = map_render_height + 100
-        window_width = int(window_height * 16 / 9)
-
-        screen = pygame.display.set_mode((window_width, window_height))
+        # Ustaw okno na pełny ekran
+        screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+        window_width, window_height = screen.get_size()
         pygame.display.set_caption("Symulator Walk Czołgów")
         clock = pygame.time.Clock()
         assets = load_assets()
