@@ -67,6 +67,13 @@ class Agent007:
         self.last_strategy = None
         self.total_decisions = 0
         self.shots_attempted = 0
+        self.enemy_visible_ticks = 0
+        self.fire_window_ticks = 0
+        self.aligned_enemy_ticks = 0
+        self.close_enemy_ticks = 0
+        self.attack_close_ticks = 0
+        self.attack_fire_window_ticks = 0
+        self.fallback_ticks = 0
         self.log_actions = False
         if specimen:
             self.load_specimen(specimen)
@@ -126,9 +133,9 @@ class Agent007:
         return float(min(distances))
 
     def _map_prediction_to_strategy(self, raw_prediction: float) -> StrategyType:
-        # Use nearest strategy bucket instead of floor to reduce low-index bias.
-        clipped = float(np.clip(raw_prediction, 0.0, len(StrategyType) - 1))
-        strategy_idx = int(np.floor(clipped + 0.5))
+        # ANFIS output is usually close to [-1, 1], so normalize to full strategy index range.
+        scaled = (np.tanh(float(raw_prediction)) + 1.0) * 0.5 * (len(StrategyType) - 1) - 0.5
+        strategy_idx = int(np.floor(np.clip(scaled, 0.0, len(StrategyType) - 1) + 0.5))
         return StrategyType(strategy_idx)
 
     def _apply_safety_fallback(
@@ -142,38 +149,41 @@ class Agent007:
         )
         hp_pct = float(summary.get("self", {}).get("hp_pct", 100.0) or 100.0)
         reload_ticks = float(summary.get("self", {}).get("reload_ticks", 0.0) or 0.0)
-        can_fire = bool(summary.get("tactical", {}).get("can_fire", False))
         terrain_damage = float(summary.get("self", {}).get("terrain_damage", 0.0) or 0.0)
+        can_fire = bool(summary.get("tactical", {}).get("can_fire", False))
+        aim_error = abs(float(summary.get("tactical", {}).get("rotation_to_target", 0.0) or 0.0))
         nearest_powerup_dist = self._nearest_powerup_distance(summary)
 
-        # Hard safety rules: stay alive first.
+        # Hard safety rules only for critical states.
         if hp_pct <= 25.0 and enemy_dist is not None and enemy_dist <= 220.0:
             return StrategyType.FLEE, "critical_hp"
 
         if terrain_damage <= -3.0 and enemy_dist is not None and enemy_dist <= 180.0:
             return StrategyType.FLEE, "deadly_terrain"
 
-        # Avoid standing still under threat when weapon is reloading.
-        if reload_ticks > 0.0 and enemy_dist is not None and enemy_dist <= 180.0:
-            return StrategyType.RELOAD, "reload_under_threat"
-
-        # If we have a clear close shot, force aggression.
-        if can_fire and enemy_dist is not None and enemy_dist <= 200.0 and hp_pct > 20.0:
-            return StrategyType.ATTACK, "attack_window"
-
-        # If no enemy is visible, do not sit in defensive mode.
+        # If no enemy is visible, SEARCH/POWERUP is always better than blind combat behavior.
         if enemy_dist is None:
             if nearest_powerup_dist is not None and nearest_powerup_dist <= 90.0 and hp_pct < 80.0:
                 return StrategyType.POWERUP, "safe_powerup_pickup"
             return StrategyType.SEARCH, "no_enemy_visible"
 
-        # Nearby useful pickup while not in immediate danger.
-        if (
-            nearest_powerup_dist is not None
-            and nearest_powerup_dist <= 100.0
-            and (hp_pct < 60.0 or enemy_dist > 260.0)
-        ):
-            return StrategyType.POWERUP, "near_powerup"
+        # If model wants POWERUP but pickup is unavailable, treat as SEARCH first.
+        if model_strategy == StrategyType.POWERUP and nearest_powerup_dist is None:
+            model_strategy = StrategyType.SEARCH
+
+        # Prevent invalid POWERUP behavior when there is no pickup in view.
+        if model_strategy == StrategyType.POWERUP and nearest_powerup_dist is not None and nearest_powerup_dist > 140.0:
+            model_strategy = StrategyType.SEARCH
+
+        # Under contact while reloading, flee only if HP is critically low.
+        if reload_ticks > 0.0 and enemy_dist <= 140.0 and hp_pct <= 40.0:
+            return StrategyType.FLEE, "close_reload_low_hp"
+
+        # Aggressive bias: visible enemy + ready weapon => attack by default.
+        if hp_pct > 30.0:
+            if terrain_damage > -3.0 or enemy_dist > 150.0:
+                if can_fire or aim_error <= 75.0 or enemy_dist <= 360.0:
+                    return StrategyType.ATTACK, "enemy_visible_force_attack"
 
         return model_strategy, None
 
@@ -201,6 +211,39 @@ class Agent007:
             self.strategy_switches += 1
         self.last_strategy = strategy
 
+    def _update_combat_metrics(
+        self,
+        summary: Dict[str, Any],
+        strategy: StrategyType,
+        fallback_reason: Optional[str],
+    ) -> None:
+        nearest_enemy = summary.get("radar", {}).get("nearest_enemy")
+        enemy_dist = (
+            float(nearest_enemy.get("dist"))
+            if nearest_enemy and nearest_enemy.get("dist") is not None
+            else None
+        )
+        can_fire = bool(summary.get("tactical", {}).get("can_fire", False))
+        aim_error = abs(float(summary.get("tactical", {}).get("rotation_to_target", 0.0) or 0.0))
+
+        if nearest_enemy is not None:
+            self.enemy_visible_ticks += 1
+            if aim_error <= 12.0:
+                self.aligned_enemy_ticks += 1
+
+        if enemy_dist is not None and enemy_dist <= 120.0:
+            self.close_enemy_ticks += 1
+            if strategy == StrategyType.ATTACK:
+                self.attack_close_ticks += 1
+
+        if can_fire:
+            self.fire_window_ticks += 1
+            if strategy == StrategyType.ATTACK:
+                self.attack_fire_window_ticks += 1
+
+        if fallback_reason is not None:
+            self.fallback_ticks += 1
+
     def get_action(
         self, 
         current_tick: int, 
@@ -215,6 +258,7 @@ class Agent007:
         
         current_strategy, raw_prediction, model_strategy, fallback_reason = self.decide_strategy(summary)
         self._update_strategy_metrics(current_strategy)
+        self._update_combat_metrics(summary, current_strategy, fallback_reason)
         # ==================================================================
 
 
@@ -338,42 +382,72 @@ class Agent007:
         damage = float(damage_dealt)
         kills = float(tanks_killed)
         hp_left = float(self.observer.my_tank.get("hp", 0.0))
+        decisions = max(self.total_decisions, 1)
 
-        # Combat-first reward: damage and kills dominate survival reward.
+        enemy_visible_ratio = self.enemy_visible_ticks / decisions
+        fire_window_ratio = self.fire_window_ticks / decisions
+        alignment_ratio = self.aligned_enemy_ticks / max(self.enemy_visible_ticks, 1)
+        attack_close_ratio = self.attack_close_ticks / max(self.close_enemy_ticks, 1)
+        attack_fire_window_ratio = self.attack_fire_window_ticks / max(self.fire_window_ticks, 1)
+        fallback_ratio = self.fallback_ticks / decisions
+
+        # Damage and kills remain primary objective.
         score = 0.0
-        score += damage * 1.15
-        score += kills * 85.0
-        score += hp_left * 0.10
-        score += 8.0 if not self.is_destroyed else -18.0
+        score += damage * 1.90
+        score += kills * 120.0
+        score += hp_left * 0.08
+        score += 6.0 if not self.is_destroyed else -14.0
 
-        # Encourage actual firing behavior.
-        score += min(self.shots_attempted, 80) * 0.20
+        # Dense combat shaping for early generations.
+        score += min(self.shots_attempted, 20) * 0.55
         if self.shots_attempted == 0:
-            score -= 15.0
+            score -= 10.0
 
-        # Encourage active combat-oriented strategies.
-        score += strategy_ratios[StrategyType.ATTACK] * 26.0
-        score += strategy_ratios[StrategyType.RELOAD] * 8.0
-        score += strategy_ratios[StrategyType.FLEE] * 4.0
+        score += enemy_visible_ratio * 8.0
+        score += fire_window_ratio * 12.0
+        score += alignment_ratio * 14.0
+        score += attack_close_ratio * 26.0
+        score += attack_fire_window_ratio * 34.0
+
+        # Prefer ATTACK when it is viable.
+        score += strategy_ratios[StrategyType.ATTACK] * 20.0
+        score += strategy_ratios[StrategyType.FLEE] * 3.0
 
         # Penalize overly passive policies.
-        score -= max(0.0, strategy_ratios[StrategyType.SAVE] - 0.35) * 38.0
-        score -= max(0.0, strategy_ratios[StrategyType.SEARCH] - 0.30) * 34.0
+        score -= max(0.0, strategy_ratios[StrategyType.SEARCH] - 0.45) * 32.0
+        score -= max(0.0, strategy_ratios[StrategyType.SAVE] - 0.30) * 22.0
+        score -= max(0.0, strategy_ratios[StrategyType.POWERUP] - 0.20) * 14.0
 
         # Reward moderate adaptation, penalize twitchy switching.
-        target_switch_ratio = 0.15
-        score += max(0.0, 1.0 - abs(switch_ratio - target_switch_ratio) / target_switch_ratio) * 8.0
-        if switch_ratio > 0.50:
-            score -= (switch_ratio - 0.50) * 35.0
+        target_switch_ratio = 0.12
+        score += max(0.0, 1.0 - abs(switch_ratio - target_switch_ratio) / target_switch_ratio) * 6.0
+        if switch_ratio > 0.55:
+            score -= (switch_ratio - 0.55) * 30.0
 
         # Hard penalties for non-combat outcomes.
+        if self.fire_window_ticks > 0 and self.attack_fire_window_ticks == 0:
+            score -= 20.0
+        if self.enemy_visible_ticks > 0 and strategy_ratios[StrategyType.ATTACK] < 0.05:
+            score -= 16.0
+        if fallback_ratio > 0.70:
+            score -= (fallback_ratio - 0.70) * 20.0
         if damage < 5.0 and kills == 0:
-            score -= 25.0
+            score -= 20.0
         if damage == 0.0 and kills == 0:
-            score -= 35.0
+            score -= 26.0
 
         self.specimen.score = float(score)
         self.specimen.save_to_file()
+        self.logger.info(
+            "[%s] Combat metrics: seen=%.2f fire_window=%.2f align=%.2f attack_close=%.2f attack_window=%.2f fallback=%.2f",
+            self.name,
+            enemy_visible_ratio,
+            fire_window_ratio,
+            alignment_ratio,
+            attack_close_ratio,
+            attack_fire_window_ratio,
+            fallback_ratio,
+        )
         self.logger.info(
             "[%s] Final specimen score: %.3f (damage=%.1f kills=%s hp=%.1f shots=%s)",
             self.name,

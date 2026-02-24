@@ -139,26 +139,6 @@ def tactic_powerup(summary: Dict[str, Any], observer: BattlefieldObserver) -> Ac
         should_fire=summary["tactical"]["can_fire"]
     )
 
-def tactic_reload(summary: Dict[str, Any], observer: BattlefieldObserver) -> ActionCommand:
-    """Cel: Wycofanie się w celu przeładowania, oszczędzanie HP."""
-    # Prawie jak Flee/Save, ale nie próbujemy w ogóle strzelać
-    nearest = summary["radar"]["nearest_enemy"]
-    heading_rot = 0.0
-    
-    if nearest:
-        heading_to_enemy = get_heading_to_pos(observer.my_tank, nearest["tank_data"]["position"])
-        heading_rot = (heading_to_enemy + 180) % 360 - 180
-    else:
-        heading_rot = random.choice([-20.0, 20.0])
-
-    return ActionCommand(
-        barrel_rotation_angle=0.0, # Wyłączamy celowanie, oszczędzamy ruch
-        heading_rotation_angle=heading_rot,
-        move_speed=3.0,
-        ammo_to_load=get_best_ammo(observer.my_tank),
-        should_fire=False
-    )
-
 # ============================================================================
 # GŁÓWNY ROUTER TAKTYK
 # ============================================================================
@@ -177,7 +157,6 @@ def get_action_to_tactics(strategy: StrategyType, observer: BattlefieldObserver)
         StrategyType.SAVE: tactic_save,
         StrategyType.SEARCH: tactic_search,
         StrategyType.POWERUP: tactic_powerup,
-        StrategyType.RELOAD: tactic_reload,
     }
 
     # Pobieramy odpowiednią funkcję i ją uruchamiamy

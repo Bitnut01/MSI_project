@@ -11,23 +11,22 @@ class StrategyType(IntEnum):
     ATTACK = 2     # Agresywne dążenie do kontaktu i strzału
     SEARCH = 3     # Patrolowanie, szukanie wrogów
     POWERUP = 4    # Ignorowanie walki na rzecz wzmocnień
-    RELOAD = 5     # Wycofanie się w celu przeładowania
 
 INPUTS_DEFINITION = [
-    FuzzyInputVariable_3Trapezoids(0.55, 0.24, 0.24, 0.24, "my_hp", ["low", "mid", "high"]),
-    FuzzyInputVariable_3Trapezoids(0.35, 0.20, 0.20, 0.35, "enemy_dist", ["near", "mid", "far"]),
-    FuzzyInputVariable_3Trapezoids(0.30, 0.18, 0.12, 0.42, "reload_status", ["ready", "reloading", "locked"]),
-    FuzzyInputVariable_3Trapezoids(0.18, 0.12, 0.10, 0.35, "aim_error", ["aligned", "adjust", "off"]),
-    FuzzyInputVariable_3Trapezoids(0.35, 0.18, 0.20, 0.40, "powerup", ["near", "mid", "far"]),
-    FuzzyInputVariable_3Trapezoids(0.25, 0.14, 0.20, 0.45, "terrain_risk", ["safe", "risky", "deadly"]),
-    FuzzyInputVariable_3Trapezoids(0.50, 0.05, 0.45, 0.45, "can_fire", ["no", "maybe", "yes"]), #maybe może bez sensu, ale coś musi być
+    FuzzyInputVariable_3Trapezoids(0.50, 0.30, 0.22, 0.22, "my_hp", ["low", "mid", "high"]),
+    FuzzyInputVariable_3Trapezoids(0.28, 0.18, 0.16, 0.42, "enemy_dist", ["near", "mid", "far"]),
+    FuzzyInputVariable_3Trapezoids(0.32, 0.20, 0.14, 0.36, "reload_status", ["ready", "reloading", "locked"]),
+    FuzzyInputVariable_3Trapezoids(0.16, 0.10, 0.08, 0.30, "aim_error", ["aligned", "adjust", "off"]),
+    FuzzyInputVariable_3Trapezoids(0.55, 0.24, 0.20, 0.30, "powerup", ["near", "mid", "far"]),
+    FuzzyInputVariable_3Trapezoids(0.20, 0.14, 0.12, 0.38, "terrain_risk", ["safe", "risky", "deadly"]),
+    FuzzyInputVariable_3Trapezoids(0.50, 0.08, 0.45, 0.45, "can_fire", ["no", "maybe", "yes"]),
 ]
 
 class StrategyModel:
-    def __init__(self, fuzzy_inputs, output_range: tuple[float, float] = (0.0, 6.0)):
+    def __init__(self, fuzzy_inputs, output_range: tuple[float, float] = (0.0, 5.0)):
         """
         :param fuzzy_inputs: Lista gotowych obiektów FuzzyInputVariable_List_Trapezoids
-        :param output_range: Zakres wartości wyjściowych (domyślnie 0-6)
+        :param output_range: Zakres wartości wyjściowych (domyślnie 0-5)
         """
 
         dummy_x = np.zeros((len(fuzzy_inputs), 1))
