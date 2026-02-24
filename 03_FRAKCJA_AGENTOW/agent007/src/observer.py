@@ -107,8 +107,23 @@ class BallisticsModule:
 
     def get_rotation_to_target(self, my_tank: Dict, target_pos: Dict) -> float:
         dx, dy = target_pos["x"] - my_tank["position"]["x"], target_pos["y"] - my_tank["position"]["y"]
+        
+        # Korekta dla układu współrzędnych ekranowych (Y rośnie w dół):
+        # W standardowym math.atan2(y, x), kąt rośnie CCW (przeciwnie do zegara).
+        # W układzie ekranowym często kąty rosną CW (zgodnie z zegarem) lub Y jest odwrócone.
+        # Jeśli 0 stopni = Prawo (X+), a 90 stopni = Dół (Y+), to atan2(dy, dx) zwróci poprawną wartość kąta,
+        # ALE musimy upewnić się czy system gry używa tego samego zwrotu.
+        # Zazwyczaj wystarczy po prostu atan2(dy, dx) jeśli 0 to 'X+', a kąty rosną w stronę 'Y+'.
+        # Jeśli jednak kąty gry są "matematyczne" (Y+ to góra), a ekran ma Y+ w dół, to trzeba odwrócić Y przy obliczeniach.
+        # Zakładamy tutaj, że skoro system jest Y-down (ekranowy), to kąt też powinien to odzwierciedlać.
+        
         target_angle = math.degrees(math.atan2(dy, dx))
-        diff = target_angle - my_tank["barrel_angle"]
+        
+        # Normalizacja obu kątów przed odejmowaniem
+        current_barrel_angle = (my_tank["barrel_angle"] + 180) % 360 - 180
+        target_angle = (target_angle + 180) % 360 - 180
+        
+        diff = target_angle - current_barrel_angle
         return (diff + 180) % 360 - 180
 
     def is_line_of_fire_clear(self, my_pos: Dict, target_pos: Dict, allies: List[Dict]) -> bool:

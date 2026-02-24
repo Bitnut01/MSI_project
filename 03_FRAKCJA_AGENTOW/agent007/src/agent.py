@@ -1,3 +1,4 @@
+import json
 import random
 import numpy as np
 
@@ -39,39 +40,6 @@ class Agent007:
         self.is_destroyed = False
         print(f"[{self.name}] Agent initialized")
 
-        # RANDOM CODE ======================================================
-        # # State for movement
-        # self.move_timer = 0
-        # self.current_move_speed = 0.0
-
-        # # State for hull rotation
-        # self.heading_timer = 0
-        # self.current_heading_rotation = 0.0
-
-        # # State for barrel scanning
-        # self.barrel_scan_direction = 1.0  # 1.0 for right, -1.0 for left
-        # self.barrel_rotation_speed = 15.0
-
-        # # State for aiming before shooting
-        # self.aim_timer = 0  # Ticks to wait before firing
-        # ==================================================================
-
-        # self.tactic_state = {
-        #     "on_bad_terrain": False,
-        #     "escape_timer": 10,
-        #     "search_turn_timer": 300,
-        #     "current_path": [],
-        #     "last_pos": {"x": None, "y": None},
-        #     "stucked": False,
-        #     "stucked_timer": 2,
-        #     "rotation_timer": 2,
-        #     "stucked_timer_2": 50,
-        #     "rotation_dir": 1, # 1 = left, -1 = right
-        #     "is_rotating": False,
-        #     "last_heading": 0.0,
-        #     "boarder_time": 10,
-        # }
-
         self.tactic_state = IterState()
 
         self.observer = BattlefieldObserver()
@@ -79,6 +47,7 @@ class Agent007:
         self.specimen = None
         self.training = training
         self.strategy_selector = StrategyModel(INPUTS_DEFINITION)
+        self.strategy_counts = {s.name: 0 for s in StrategyType}
         if specimen:
             self.load_specimen(specimen)
     
@@ -108,13 +77,9 @@ class Agent007:
             "my_hp": summary.get("self", {}).get("hp_pct", 100.0) / 100.0,
             "enemy_dist": (enemy_dist / 300.0) if enemy_dist is not None else 1.0,
             "reload_status": summary.get("self", {}).get("reload_ticks", 0.0) / 10.0,
-            "aim_error": abs(summary.get("tactical", {}).get("rotation_to_target", 0.0)) / 180.0,
-            "powerup": (
-                nearest_powerup_dist / 300.0 if nearest_powerup_dist is not None else 1.0
-            ),
-            "can_fire": 1.0 if summary.get("tactical", {}).get("can_fire", False) else 0.0,
             # na bezwzględnej wartości obrażeń
             "terrain_risk": abs(float(summary.get("self", {}).get("terrain_damage", 0.0) or 0.0)) / 5.0,
+            "enemies_left": min(float(summary.get("radar", {}).get("enemies_left", 0.0)) / 10.0, 1.0),
         }
 
         ordered_features = []
@@ -146,7 +111,7 @@ class Agent007:
         prediction = self.strategy_selector.get_result(input_vector)
         val = prediction[0] if isinstance(prediction, (list, np.ndarray)) else prediction
 
-        return StrategyType(int(np.clip(np.floor(val), 0, 5)))
+        return StrategyType(int(np.clip(np.floor(val), 0, 4)))
 
     def get_action(
         self, 
@@ -161,9 +126,15 @@ class Agent007:
         summary = self.observer.get_summary()
         
         current_strategy = self.decide_strategy(summary)
-        #print(summary)
+        self.strategy_counts[current_strategy.name] += 1
         # ==================================================================
-        # powerup = summary["logistics"]["powerups"]
+        
+        # enemy = summary["radar"]["nearest_enemy"]
+
+        # if enemy is not None:
+        #     current_strategy = StrategyType.ATTACK
+        # else:
+        #     current_strategy = StrategyType.SEARCH
 
         action = get_action_to_tactics(current_strategy, self.observer, self.tactic_state)
 
@@ -181,11 +152,62 @@ class Agent007:
         print(f"[{self.name}] Tanks killed: {tanks_killed}")
         if self.training and self.specimen:
             self._score_genotype(damage_dealt, tanks_killed)
-            
-    def _score_genotype(self, damage_dealt, tanks_killed):
-        score = damage_dealt/10
-        score += tanks_killed*10
-        score -= self.is_destroyed*50
-        score +=  self.observer.my_tank["hp"]
-        self.specimen.score = score
+            self._save_strategy_counts()
+
+
+    # tutaj zmiany
+    def _score_genotype(self, damage_dealt: float, tanks_killed: int) -> None:
+        """
+        Bounded fitness in [0, 100].
+        - Strongly rewards kills + damage.
+        - Rewards survival and remaining HP.
+        - Penalizes terrain damage.
+        - Penalizes "stalling": lots of SAVE with low impact.
+        """
+        summary = self.observer.get_summary()
+
+        hp_pct = float(summary.get("self", {}).get("hp_pct", 0.0) or 0.0)
+        hp_n = float(np.clip(hp_pct / 100.0, 0.0, 1.0))
+
+        terrain_damage = float(
+            summary.get("self", {}).get("terrain_damage", 0.0) or 0.0
+        )
+        terrain_abs = abs(terrain_damage)
+
+        dmg = max(0.0, float(damage_dealt))
+        kills = max(0, int(tanks_killed))
+
+        # Smooth normalization (prevents outliers dominating).
+        # Tune denominators (200.0, 2.0, 5.0) to your game's scale.
+        damage_n = 1.0 - math.exp(-dmg / 200.0)          # 0..1
+        kills_n = 1.0 - math.exp(-kills / 2.0)           # 0..1
+        survive_n = 1.0 if not self.is_destroyed else 0.0
+        terrain_n = 1.0 - math.exp(-terrain_abs / 5.0)   # 0..1
+
+        total_choices = sum(self.strategy_counts.values())
+        save_ratio = (
+            self.strategy_counts.get("SAVE", 0) / total_choices
+            if total_choices > 0
+            else 0.0
+        )
+
+        # Only punish SAVE if it correlates with doing nothing useful.
+        stalling = 1.0 if (kills == 0 and dmg < 50.0 and save_ratio > 0.35) else 0.0
+
+        # Weights sum to 100 on the positive side.
+        score = (
+            45.0 * damage_n
+            + 35.0 * kills_n
+            + 10.0 * survive_n
+            + 10.0 * hp_n
+            - 10.0 * terrain_n
+            - 10.0 * stalling
+        )
+
+        self.specimen.score = float(np.clip(score, 0.0, 100.0))
         self.specimen.save_to_file()
+
+    def _save_strategy_counts(self) -> None:
+        filename = f"strategy_counts_{self.name}.json"
+        with open(filename, "w", encoding="utf-8") as handle:
+            json.dump(self.strategy_counts, handle, indent=2)

@@ -13,7 +13,7 @@ from .state import *
 from pydantic import BaseModel
 
 ROT_ANG = 30.0
-BARREL_SPIN_RATE = 70.0
+BARREL_SPIN_RATE = 15.0
 
 class ActionCommand(BaseModel):
     barrel_rotation_angle: float = 0.0
@@ -33,6 +33,7 @@ class Commander():
 # FUNKCJE POMOCNICZE
 # ============================================================================        
     
+
 def get_best_ammo(my_tank: Dict[str, Any]) -> str:
     """Wybiera typ amunicji, którego jest najwięcej."""
     ammo_data = my_tank.get("ammo", {})
@@ -122,6 +123,10 @@ def _wrap_angle_deg(a: float) -> float:
     return (a + 180.0) % 360.0 - 180.0
 
 
+def _clamp_rotation_delta(delta_deg: float, max_step: float) -> float:
+    return max(-max_step, min(delta_deg, max_step))
+
+
 def _clamp(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, x))
 
@@ -136,103 +141,211 @@ def _get_top_speed(my_tank: Any, default: float = 4.0) -> float:
 # TAKTYKI DLA POSZCZEGÓLNYCH STRATEGII
 # ============================================================================
 
-def tactic_attack(summary: Dict[str, Any], observer: BattlefieldObserver, state: IterState,) -> ActionCommand:
-        
-    nearest = summary["radar"]["nearest_enemy"]
+def tactic_attack(
+    summary: Dict[str, Any],
+    observer: BattlefieldObserver,
+    state: IterState,
+) -> ActionCommand:
+    """
+    Taktyka ataku:
+    1) Jeśli nie ma wroga -> jedź/szukaj.
+    2) Jeśli jest wróg -> utrzymuj dystans ~0.9 zasięgu, kadłub pomaga w celowaniu,
+       lufa stabilnie domyka cel (mniej jitteru) i strzelaj dopiero gdy wycelowane.
+    """
 
-    can_fire = bool(summary["tactical"]["can_fire"])
+    # ------------------------------------------------------------------
+    # Lokalne helpery (żeby funkcja była kompletna)
+    # ------------------------------------------------------------------
+    def _norm_angle(a: float) -> float:
+        return (a + 180.0) % 360.0 - 180.0
 
+    def _angle_diff(target: float, current: float) -> float:
+        return _norm_angle(target - current)
+
+    def _clamp(v: float, lo: float, hi: float) -> float:
+        return max(lo, min(hi, v))
+
+    def _clamp_rotation_delta(delta: float, max_abs: float) -> float:
+        return _clamp(delta, -abs(max_abs), abs(max_abs))
+
+    def _as_enum_name(v: Any) -> Optional[str]:
+        if v is None:
+            return None
+        name = getattr(v, "name", None)  # Enum -> "LIGHT"
+        if isinstance(name, str):
+            return name
+        if isinstance(v, str):
+            # "AmmoType.LIGHT" -> "LIGHT"
+            return v.split(".")[-1]
+        return str(v)
+
+    def _ammo_cmd_value(v: Any) -> Optional[str]:
+        name = _as_enum_name(v)
+        if name is None:
+            return None
+        # U Ciebie ActionCommand w agencie ma ammo_to_load: str, więc wysyłamy string.
+        return f"AmmoType.{name}"
+
+    # ------------------------------------------------------------------
+    # Dane wejściowe
+    # ------------------------------------------------------------------
+    nearest = summary.get("radar", {}).get("nearest_enemy")
     ammo_to_load = get_best_ammo(observer.my_tank)
 
-    # Turret: celuj w target (silnik i tak ograniczy prędkość obrotu lufy)
-    barrel_rot = (
-        float(summary["tactical"]["rotation_to_target"])
-        if nearest is not None
-        else 0.0
-    )
+    rot_ang = float(globals().get("ROT_ANG", 30.0))
+    barrel_spin_fallback = float(globals().get("BARREL_SPIN_RATE", 90.0))
 
-    # Jak nie ma wroga -> możesz tu zrobić call do tactic_search(...)
+    # ------------------------------------------------------------------
+    # KROK 1: Brak wroga -> ruch + skan (tu: lufa spokojnie)
+    # ------------------------------------------------------------------
     if nearest is None:
         state.set_forward(speed=5.0)
         speed, heading_rot = state.motion_step(
             summary,
-            rot_ang=ROT_ANG,
+            rot_ang=rot_ang,
             map_cfg=_map_cfg_from_observer(observer),
             rec_cfg=_rec_cfg_default(),
             enable_border=True,
             enable_obstacle=True,
             enable_stuck=True,
-            enable_terrein = False,
+            enable_terrein=False,
         )
         return ActionCommand(
-            barrel_rotation_angle=barrel_rot,
+            barrel_rotation_angle=0.0,
             heading_rotation_angle=heading_rot,
             move_speed=speed,
-            ammo_to_load=ammo_to_load,
+            ammo_to_load=_ammo_cmd_value(ammo_to_load),
             should_fire=False,
         )
 
-    # --- Dane własne i wroga ---
+    # ------------------------------------------------------------------
+    # KROK 2: Jest wróg -> geometria
+    # ------------------------------------------------------------------
     my_pos = summary["self"]["pos"]
     my_x = float(my_pos["x"])
     my_y = float(my_pos["y"])
     my_heading = float(summary["self"]["heading"])
+    my_barrel = float(summary["self"]["barrel_angle"])
 
     enemy_pos = nearest["tank_data"]["position"]
     ex = float(enemy_pos["x"])
     ey = float(enemy_pos["y"])
 
-    dist = float(np.hypot(ex - my_x, ey - my_y))
+    dx = ex - my_x
+    dy = ey - my_y
+    dist_to_enemy = float(math.hypot(dx, dy))
 
-    # --- Ustal dystans optymalny ---
-    weapon_range = float(observer.ballistics.get_range(observer.my_tank))
-    if weapon_range <= 0.0:
-        weapon_range = 10.0
-    optimal_distance = 0.8 * weapon_range
+    # Kąt do wroga (zakładamy atan2 zgodny z układem gry; observer też tak liczy)
+    target_heading_deg = float(math.degrees(math.atan2(dy, dx)))
+    heading_diff = _angle_diff(target_heading_deg, my_heading)
 
+    # ------------------------------------------------------------------
+    # KROK 3: Stabilne sterowanie lufą (mniej jitteru) + obsługa 2 konwencji
+    # ------------------------------------------------------------------
+    # A) barrel_angle absolutny (światowy)
+    err_abs = _angle_diff(target_heading_deg, my_barrel)
 
-    # --- Błąd kierunku do wroga (dla decyzji "czy jechać") ---
-    target_angle = math.degrees(math.atan2(ey - my_y, ex - my_x))
-    heading_err = _wrap_angle_deg(target_angle - my_heading)
+    # B) barrel_angle relatywny do kadłuba (częste w silnikach)
+    desired_rel = _angle_diff(target_heading_deg, my_heading)
+    err_rel = _angle_diff(desired_rel, my_barrel)
 
-    top_speed = float(observer.my_tank.get("_top_speed", 5.0))
+    # Heurystyka: wybierz mniejszy błąd
+    barrel_err = err_rel if abs(err_rel) < abs(err_abs) else err_abs
 
-    # --- Decyzja o prędkości (atak dystansowy) ---
-    if dist > optimal_distance:
-        desired_speed = top_speed
-    elif dist < optimal_distance * 0.3:
-        desired_speed = -top_speed * 0.5
-    else:
-        desired_speed = 0.0
-
-    # Nie jedź (ani w przód ani w tył), jeśli jesteś mocno bokiem.
-    # Wtedy FSM ustawi speed=0 i będzie Cię obracał do wroga (GOTO z speed=0).
-    if abs(heading_err) > 60.0:
-        desired_speed = 0.0
-
-    # Chcemy zawsze "patrzeć" kadłubem na wroga, więc używamy GOTO do pozycji wroga,
-    # ale prędkością sterujemy sami (może być 0 albo ujemna).
-    state.set_goto(x=ex, y=ey, speed=desired_speed, stop_radius=0.5)
-
-    # Guardy: przeszkody mają sens tylko gdy jedziesz do przodu.
-    enable_move_guards = abs(desired_speed) > 0.0
-    speed, heading_rot = state.motion_step(
-        summary,
-        rot_ang=ROT_ANG,
-        map_cfg=_map_cfg_from_observer(observer),
-        rec_cfg=_rec_cfg_default(),
-        enable_border=enable_move_guards,
-        enable_obstacle=(desired_speed > 0.0),
-        enable_stuck=enable_move_guards,
-        enable_terrein = False,
+    barrel_spin = float(
+        observer.my_tank.get("_barrel_spin_rate", barrel_spin_fallback)
     )
 
+    # Deadzone + sterowanie proporcjonalne
+    if abs(barrel_err) < 1.5:
+        barrel_rot = 0.0
+    else:
+        barrel_rot = _clamp_rotation_delta(barrel_err * 0.6, barrel_spin)
+
+    # ------------------------------------------------------------------
+    # KROK 4: Ruch na dystans optymalny (punkt docelowy na okręgu wokół wroga)
+    # ------------------------------------------------------------------
+    weapon_range = float(observer.ballistics.get_range(observer.my_tank))
+    if weapon_range <= 0.0:
+        weapon_range = 8.0  # fallback
+
+    optimal_dist = 0.9 * weapon_range
+    top_speed = float(_get_top_speed(observer.my_tank, 5.0))
+
+    if dist_to_enemy > optimal_dist:
+        desired_speed = top_speed
+    elif dist_to_enemy < (optimal_dist * 0.4):
+        desired_speed = -top_speed * 0.8
+    else:
+        err_dist = dist_to_enemy - optimal_dist
+        desired_speed = _clamp(err_dist * 0.5, -top_speed, top_speed)
+
+    # Duży błąd kadłuba -> zwolnij, żeby szybciej się obrócić
+    if abs(heading_diff) > 45.0:
+        desired_speed *= 0.1
+
+    # Punkt docelowy: utrzymaj się w odległości optimal_dist od wroga
+    if dist_to_enemy > 1e-6:
+        ux = (my_x - ex) / dist_to_enemy
+        uy = (my_y - ey) / dist_to_enemy
+        gx = ex + ux * optimal_dist
+        gy = ey + uy * optimal_dist
+    else:
+        gx, gy = my_x, my_y
+
+    state.set_goto(x=gx, y=gy, speed=desired_speed, stop_radius=3.0)
+
+    speed, heading_rot = state.motion_step(
+        summary,
+        rot_ang=rot_ang,
+        map_cfg=_map_cfg_from_observer(observer),
+        rec_cfg=_rec_cfg_default(),
+        enable_border=True,
+        enable_obstacle=True,
+        enable_stuck=True,
+        enable_terrein=False,
+    )
+
+    # Kadłub „pomaga” w walce (blend z nawigacją), ale nie gdy przeszkoda przed nami
+    heading_spin = float(observer.my_tank.get("_heading_spin_rate", rot_ang))
+    face_enemy_rot = _clamp_rotation_delta(heading_diff * 0.7, heading_spin)
+
+    close_combat = dist_to_enemy <= (weapon_range * 1.2)
+    obstacle_ahead = bool(summary["self"].get("obstacle_ahead", False))
+    if close_combat and not obstacle_ahead:
+        heading_rot = (0.3 * float(heading_rot)) + (0.7 * float(face_enemy_rot))
+
+    # ------------------------------------------------------------------
+    # KROK 5: Strzał tylko gdy: gotowy + w zasięgu + wycelowane + czysta linia
+    # ------------------------------------------------------------------
+    ammo_loaded_name = _as_enum_name(observer.my_tank.get("ammo_loaded"))
+    want_ammo_name = _as_enum_name(ammo_to_load)
+
+    clear_line = observer.ballistics.is_line_of_fire_clear(
+        summary["self"]["pos"],
+        nearest["tank_data"]["position"],
+        observer.radar.allies,
+    )
+
+    ready = bool(summary["self"].get("is_ready", False))
+    aim_ok = abs(barrel_err) <= 2.5
+    in_range = dist_to_enemy <= (weapon_range + 0.25)
+
+    # jeśli chcemy konkretną amunicję, to nie strzelaj, gdy załadowana jest inna
+    correct_ammo = (
+        want_ammo_name is None
+        or ammo_loaded_name is None
+        or ammo_loaded_name == want_ammo_name
+    )
+
+    should_fire = bool(ready and aim_ok and in_range and clear_line and correct_ammo)
+
     return ActionCommand(
-        barrel_rotation_angle=barrel_rot,
-        heading_rotation_angle=heading_rot,
-        move_speed=speed,
-        ammo_to_load=ammo_to_load,
-        should_fire=can_fire,
+        barrel_rotation_angle=float(barrel_rot),
+        heading_rotation_angle=float(heading_rot),
+        move_speed=float(speed),
+        ammo_to_load=_ammo_cmd_value(ammo_to_load),
+        should_fire=should_fire,
     )
 
 def tactic_flee(summary: Dict[str, Any], observer: BattlefieldObserver, state: IterState) -> ActionCommand:
@@ -347,7 +460,10 @@ def tactic_flee(summary: Dict[str, Any], observer: BattlefieldObserver, state: I
         enable_terrein=True,
     )
 
-    barrel_rot = float(summary["tactical"]["rotation_to_target"])
+    barrel_rot = _clamp_rotation_delta(
+        float(summary["tactical"]["rotation_to_target"]),
+        BARREL_SPIN_RATE,
+    )
 
     return ActionCommand(
         barrel_rotation_angle=barrel_rot,
@@ -446,7 +562,10 @@ def tactic_search(summary, observer, state: IterState) -> ActionCommand:
     nearest = summary["radar"]["nearest_enemy"]
 
     if nearest:
-        barrel_rot = float(summary["tactical"]["rotation_to_target"])
+        barrel_rot = _clamp_rotation_delta(
+            float(summary["tactical"]["rotation_to_target"]),
+            BARREL_SPIN_RATE,
+        )
     else:
         barrel_rot = 30.0
 
@@ -585,7 +704,10 @@ def tactic_powerup(summary: Dict[str, Any], observer: BattlefieldObserver, state
         barrel_rot = float(ROT_ANG)
         should_fire = False
     else:
-        barrel_rot = float(summary["tactical"]["rotation_to_target"])
+        barrel_rot = _clamp_rotation_delta(
+            float(summary["tactical"]["rotation_to_target"]),
+            BARREL_SPIN_RATE,
+        )
         should_fire = bool(summary["tactical"]["can_fire"])
 
     return ActionCommand(
@@ -607,7 +729,10 @@ def tactic_reload(summary: Dict[str, Any], observer: BattlefieldObserver, state:
     nearest = summary["radar"]["nearest_enemy"]
 
     if nearest:
-        barrel_rot = float(summary["tactical"]["rotation_to_target"])
+        barrel_rot = _clamp_rotation_delta(
+            float(summary["tactical"]["rotation_to_target"]),
+            BARREL_SPIN_RATE,
+        )
     else:
         barrel_rot = 30.0
 
@@ -653,7 +778,7 @@ def get_action_to_tactics(strategy: StrategyType, observer: BattlefieldObserver,
         StrategyType.SAVE: tactic_save,
         StrategyType.SEARCH: tactic_search,
         StrategyType.POWERUP: tactic_powerup,
-        StrategyType.RELOAD: tactic_reload,
+        #StrategyType.RELOAD: tactic_reload,
     }
 
     # Pobieramy odpowiednią funkcję i ją uruchamiamy

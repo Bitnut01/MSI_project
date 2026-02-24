@@ -228,6 +228,28 @@ class GeneticTraining:
                 p.terminate()
             for i in range(len(self.specimens)):
                 self.specimens[i] = ANFIS_Specimen.load_from_file(f"genes_bot_{self.BASE_PORT + i}.json")
+            self._print_strategy_counts(len(self.specimens))
+
+    def _print_strategy_counts(self, specimen_count: int) -> None:
+        totals: dict[str, int] = {}
+        for i in range(specimen_count):
+            port = self.BASE_PORT + i
+            stats_path = f"strategy_counts_Agent007_{port}.json"
+            if not os.path.exists(stats_path):
+                continue
+            try:
+                with open(stats_path, "r", encoding="utf-8") as handle:
+                    counts = json.load(handle)
+            except Exception:
+                continue
+
+            for key, value in counts.items():
+                totals[key] = totals.get(key, 0) + int(value)
+
+        if totals:
+            ordered = sorted(totals.items(), key=lambda item: item[0])
+            summary = ", ".join(f"{k}={v}" for k, v in ordered)
+            print(f"Strategy counts (epoch): {summary}")
 
     def get_best(self) -> tuple[float, Type[ANFIS_Specimen]]:
         return self.best

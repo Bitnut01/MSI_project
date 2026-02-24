@@ -9,6 +9,8 @@ logs/
 # C extensions
 *.so
 
+*.json
+
 # Distribution / packaging
 .Python
 build/
