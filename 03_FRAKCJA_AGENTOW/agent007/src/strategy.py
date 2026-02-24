@@ -1,7 +1,7 @@
 from enum import IntEnum
 
 import numpy as np
-from .ANFIS.params import FuzzyInputVariable_3Trapezoids, FuzzyInputVariable_List_Trapezoids
+from .ANFIS.params import FuzzyInputVariable_3Trapezoids
 from .ANFIS.ANFIS import ANFIS
 from .genetic import ANFIS_Specimen
 
@@ -14,13 +14,13 @@ class StrategyType(IntEnum):
     RELOAD = 5     # Wycofanie się w celu przeładowania
 
 INPUTS_DEFINITION = [
-    FuzzyInputVariable_3Trapezoids(0.5, 0.2, 0.1, 0.1, "my_hp", ["low", "id", "high"]),
-    FuzzyInputVariable_3Trapezoids(0.5, 0.2, 0.1, 0.1, "enemy_dist", ["near", "medium", "far"]),
-    FuzzyInputVariable_3Trapezoids(0.5, 0.2, 0.1, 0.1, "reload_status", ["ready", "busy", "empty"])
-    # FuzzyInputVariable_List_Trapezoids(
-    #     [[0.2, 0.1, 0.1, 0.1], [0.8, 0.1, 0.1, 0.1]], 
-    #     "powerup", ["blisko", "dalego"]
-    # ),
+    FuzzyInputVariable_3Trapezoids(0.55, 0.24, 0.24, 0.24, "my_hp", ["low", "mid", "high"]),
+    FuzzyInputVariable_3Trapezoids(0.35, 0.20, 0.20, 0.35, "enemy_dist", ["near", "mid", "far"]),
+    FuzzyInputVariable_3Trapezoids(0.30, 0.18, 0.12, 0.42, "reload_status", ["ready", "reloading", "locked"]),
+    FuzzyInputVariable_3Trapezoids(0.18, 0.12, 0.10, 0.35, "aim_error", ["aligned", "adjust", "off"]),
+    FuzzyInputVariable_3Trapezoids(0.35, 0.18, 0.20, 0.40, "powerup", ["near", "mid", "far"]),
+    FuzzyInputVariable_3Trapezoids(0.25, 0.14, 0.20, 0.45, "terrain_risk", ["safe", "risky", "deadly"]),
+    FuzzyInputVariable_3Trapezoids(0.50, 0.05, 0.45, 0.45, "can_fire", ["no", "maybe", "yes"]), #maybe może bez sensu, ale coś musi być
 ]
 
 class StrategyModel:

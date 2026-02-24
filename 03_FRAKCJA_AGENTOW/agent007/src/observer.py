@@ -1,11 +1,13 @@
 from __future__ import annotations
 import math
 from typing import Dict, List, Any, Optional, Tuple
+import numpy as np
 
 from .api import (
     Position, TankUnion, TankSensorData, ObstacleUnion, 
-    TerrainUnion, PowerUpData, SeenTank
+    TerrainUnion, PowerUpData, SeenTank, PowerUpType
 )
+
 
 class RadarModule:
     def __init__(self):
@@ -40,22 +42,60 @@ class LogisticsModule:
     def __init__(self):
         self.closest_powerups: Dict[str, Dict[str, Any]] = {}
 
-    def update(self, my_pos: Dict, seen_powerups: List[Dict]):
+    def update(self, my_pos: Dict, seen_powerups: List[Dict[str, Any]]) -> None:
         self.closest_powerups.clear()
+
+        mx = float(my_pos["x"])
+        my = float(my_pos["y"])
+
         for pu in seen_powerups:
             try:
-                p_type = pu.get("_powerup_type", {}).get("Name", "UNKNOWN")
-                dist = math.sqrt((my_pos["x"] - pu["_position"]["x"])**2 + 
-                                (my_pos["y"] - pu["_position"]["y"])**2)
+                pos = pu["position"]
+                px = float(pos["x"])
+                py = float(pos["y"])
+                dist = float(math.hypot(mx - px, my - py))
+
+                raw_type = pu["powerup_type"]  # np. "PowerUpType.SHIELD"
+                if not isinstance(raw_type, str):
+                    # jeśli kiedyś wróci enum, to zadziała też na nim:
+                    enum_obj = raw_type
+                else:
+                    enum_name = raw_type.split(".")[-1]  # "SHIELD"
+                    enum_obj = PowerUpType[enum_name]
+
+                meta = enum_obj.value  # {"Name": ..., "Value": ...}
+                p_type = str(meta["Name"])
+                val = int(meta["Value"])
+                pu_id = str(pu["id"])
+            except Exception:
+                continue
+
+            prev = self.closest_powerups.get(p_type)
+            if prev is None or dist < float(prev["dist"]):
+                self.closest_powerups[p_type] = {
+                    "dist": dist,
+                    "pos": {"x": px, "y": py},
+                    "val": val,
+                    "_id": pu_id,
+                }
+
+
+    # def update(self, my_pos: Dict, seen_powerups: List[Dict]):
+    #     self.closest_powerups.clear()
+    #     for pu in seen_powerups:
+    #         try:
+    #             p_type = pu.get("_powerup_type", {}).get("Name", "UNKNOWN")
+    #             dist = math.sqrt((my_pos["x"] - pu["_position"]["x"])**2 + 
+    #                             (my_pos["y"] - pu["_position"]["y"])**2)
                 
-                if p_type not in self.closest_powerups or dist < self.closest_powerups[p_type]['dist']:
-                    self.closest_powerups[p_type] = {
-                        "dist": dist,
-                        "pos": pu["_position"],
-                        "val": pu.get("value", 0)
-                    }
-            except KeyError:
-                pass
+    #             if p_type not in self.closest_powerups or dist < self.closest_powerups[p_type]['dist']:
+    #                 self.closest_powerups[p_type] = {
+    #                     "dist": dist,
+    #                     "pos": pu["_position"],
+    #                     "val": pu.get("value", 0)
+    #                 }
+    #         except KeyError:
+    #             pass
 
 class BallisticsModule:
     def get_range(self, tank: Dict) -> float:
@@ -151,7 +191,7 @@ class EnvironmentModule:
         for obs in self.obstacles.values():
             ox, oy = obs["position"]["x"], obs["position"]["y"]
             # Simplified collision check
-            if abs(ox - wx) < 8 and abs(oy - wy) < 8:
+            if abs(ox - wx) < 8 and abs(oy - wy) < 8: #changed form 8 to 15
                 return True
         return False
 
@@ -188,6 +228,9 @@ class BattlefieldObserver:
         self.logistics.update(self.my_tank["position"], sensor_data.get("seen_powerups", []))
         self.env.update(self.my_tank["position"], sensor_data)
 
+    def set_training_mode(self, enabled: bool) -> None:
+        self.training_mode = enabled
+
     def _can_shoot(self, nearest: Optional[Dict], w_range: float) -> bool:
         if not nearest or self.my_tank.get("_reload_timer", 0) > 0:
             return False
@@ -197,6 +240,36 @@ class BattlefieldObserver:
             self.my_tank["position"], nearest['tank_data']["position"], self.radar.allies
         )
         return in_range and clear_line
+
+    def is_obstacle_ahead(self, max_distance: float = 30.0, step: float = 2.0) -> bool:
+        """Sprawdza linię przed czołgiem w poszukiwaniu przeszkód (dokładne pozycje)."""
+        if not self.my_tank: return False
+
+        pos = self.my_tank["position"]
+        heading_rad = math.radians(self.my_tank.get("heading", 0.0))
+        
+        # Skanujemy co 'step' (np. 2 jednostki), co daje dużą precyzję
+        for d in np.arange(step, max_distance + step, step):
+            target_x = pos["x"] + d * math.cos(heading_rad)
+            target_y = pos["y"] + d * math.sin(heading_rad)
+            
+            # Przeszukujemy listę wszystkich znanych nam przeszkód
+            for obs in self.env.obstacles.values():
+                ox = obs["position"]["x"]
+                oy = obs["position"]["y"]
+                
+                # METODA OKRĄGŁEGO HITBOXA (Zalecana)
+                # Oblicza dokładną odległość w linii prostej między sprawdzanym punktem a przeszkodą.
+                # Kolizja z okręgiem sprawia, że czołg płynniej ześlizguje się z narożników.
+                dist = math.hypot(target_x - ox, target_y - oy)
+                
+                # 8.0 to tolerancja (wielkość przeszkody). 
+                # W API mają rozmiar [10, 10], więc promień 7-8 jednostek jest optymalny.
+                if dist < 8.0: 
+                    return True
+                    
+
+        return False
 
     def get_summary(self) -> Dict[str, Any]:
         nearest = self.radar.enemies[0] if self.radar.enemies else None
@@ -209,9 +282,12 @@ class BattlefieldObserver:
                 "is_ready": reload_ticks == 0,
                 "reload_ticks": reload_ticks,
                 "pos": self.my_tank["position"],
+                "heading": self.my_tank["heading"],
+                "barrel_angle": self.my_tank["barrel_angle"],
                 "shield": self.my_tank["shield"],
                 "speed_mod": self.env.get_movement_multiplier(),
-                "terrain_damage": self.env.get_terrain_danger()
+                "terrain_damage": self.env.get_terrain_danger(),
+                "obstacle_ahead": self.is_obstacle_ahead(max_distance=5, step=1)
             },
             "tactical": {
                 "can_fire": self._can_shoot(nearest, curr_range),

@@ -10,6 +10,7 @@ from .strategy import StrategyType, StrategyModel, INPUTS_DEFINITION
 from .genetic import ANFIS_Specimen
 
 from .tactics import *
+from .state import *
 
 # ============================================================================
 # ACTION COMMAND MODEL
@@ -39,21 +40,39 @@ class Agent007:
         print(f"[{self.name}] Agent initialized")
 
         # RANDOM CODE ======================================================
-        # State for movement
-        self.move_timer = 0
-        self.current_move_speed = 0.0
+        # # State for movement
+        # self.move_timer = 0
+        # self.current_move_speed = 0.0
 
-        # State for hull rotation
-        self.heading_timer = 0
-        self.current_heading_rotation = 0.0
+        # # State for hull rotation
+        # self.heading_timer = 0
+        # self.current_heading_rotation = 0.0
 
-        # State for barrel scanning
-        self.barrel_scan_direction = 1.0  # 1.0 for right, -1.0 for left
-        self.barrel_rotation_speed = 15.0
+        # # State for barrel scanning
+        # self.barrel_scan_direction = 1.0  # 1.0 for right, -1.0 for left
+        # self.barrel_rotation_speed = 15.0
 
-        # State for aiming before shooting
-        self.aim_timer = 0  # Ticks to wait before firing
+        # # State for aiming before shooting
+        # self.aim_timer = 0  # Ticks to wait before firing
         # ==================================================================
+
+        # self.tactic_state = {
+        #     "on_bad_terrain": False,
+        #     "escape_timer": 10,
+        #     "search_turn_timer": 300,
+        #     "current_path": [],
+        #     "last_pos": {"x": None, "y": None},
+        #     "stucked": False,
+        #     "stucked_timer": 2,
+        #     "rotation_timer": 2,
+        #     "stucked_timer_2": 50,
+        #     "rotation_dir": 1, # 1 = left, -1 = right
+        #     "is_rotating": False,
+        #     "last_heading": 0.0,
+        #     "boarder_time": 10,
+        # }
+
+        self.tactic_state = IterState()
 
         self.observer = BattlefieldObserver()
         self.score = 0
@@ -62,6 +81,10 @@ class Agent007:
         self.strategy_selector = StrategyModel(INPUTS_DEFINITION)
         if specimen:
             self.load_specimen(specimen)
+    
+    def set_training_mode(self, enabled: bool) -> None:
+        self.training = enabled
+        self.observer.set_training_mode(enabled)
             
     def load_specimen(self, specimen: ANFIS_Specimen):
         self.specimen = specimen
@@ -69,17 +92,53 @@ class Agent007:
 
     def _prepare_inputs(self, summary: dict) -> np.ndarray:
         """Mapuje dane z Observera na zakres [0, 1] dla ANFIS."""
-        # 1. HP (0-100 -> 0-1)
-        hp = summary["self"]["hp_pct"] / 100.0
+        enemy = summary.get("radar", {}).get("nearest_enemy")
+        enemy_dist = enemy.get("dist") if enemy else None
 
-        # 2. Dystans do wroga (0-800 -> 0-1)
-        enemy = summary["radar"]["nearest_enemy"]
-        e_dist = min(enemy["dist"] / 800.0, 1.0) if enemy else 1.0
+        powerups = summary.get("logistics", {}).get("powerups", {})
+        nearest_powerup_dist = None
+        for powerup in powerups.values():
+            dist = powerup.get("dist")
+            if dist is None:
+                continue
+            if nearest_powerup_dist is None or dist < nearest_powerup_dist:
+                nearest_powerup_dist = dist
+
+        feature_values = {
+            "my_hp": summary.get("self", {}).get("hp_pct", 100.0) / 100.0,
+            "enemy_dist": (enemy_dist / 300.0) if enemy_dist is not None else 1.0,
+            "reload_status": summary.get("self", {}).get("reload_ticks", 0.0) / 10.0,
+            "aim_error": abs(summary.get("tactical", {}).get("rotation_to_target", 0.0)) / 180.0,
+            "powerup": (
+                nearest_powerup_dist / 300.0 if nearest_powerup_dist is not None else 1.0
+            ),
+            "can_fire": 1.0 if summary.get("tactical", {}).get("can_fire", False) else 0.0,
+            # na bezwzględnej wartości obrażeń
+            "terrain_risk": abs(float(summary.get("self", {}).get("terrain_damage", 0.0) or 0.0)) / 5.0,
+        }
+
+        ordered_features = []
+        for fuzzy_input in INPUTS_DEFINITION:
+            feature_name = getattr(fuzzy_input, "name", "")
+            value = feature_values.get(feature_name, 0.5)
+            ordered_features.append(float(np.clip(value, 0.0, 1.0)))
+
+        return np.array(ordered_features, dtype=float) 
+
+
+    # def _prepare_inputs(self, summary: dict) -> np.ndarray:
+    #     """Mapuje dane z Observera na zakres [0, 1] dla ANFIS."""
+    #     # 1. HP (0-100 -> 0-1)
+    #     hp = summary["self"]["hp_pct"] / 100.0
+
+    #     # 2. Dystans do wroga (0-800 -> 0-1)
+    #     enemy = summary["radar"]["nearest_enemy"]
+    #     e_dist = min(enemy["dist"] / 800.0, 1.0) if enemy else 1.0
         
-        # 3. Status przeładowania (0-1)
-        reload = min(summary["self"]["reload_ticks"] / 60.0, 1.0)
+    #     # 3. Status przeładowania (0-1)
+    #     reload = min(summary["self"]["reload_ticks"] / 60.0, 1.0)
         
-        return np.array([hp, e_dist, reload])
+    #     return np.array([hp, e_dist, reload])
 
     def decide_strategy(self, summary) -> StrategyType:
         """Główna metoda wyboru strategii."""
@@ -102,77 +161,13 @@ class Agent007:
         summary = self.observer.get_summary()
         
         current_strategy = self.decide_strategy(summary)
-        print(current_strategy.name)
+        #print(summary)
         # ==================================================================
+        # powerup = summary["logistics"]["powerups"]
 
-        current_strategy = StrategyType.SEARCH
-
-
-        action = get_action_to_tactics(current_strategy, self.observer)
-
-        print(action)
+        action = get_action_to_tactics(current_strategy, self.observer, self.tactic_state)
 
         return action
-        
-        # should_fire = False
-        # heading_rotation = 0.0
-        # barrel_rotation = 0.0
-        
-        # if self.aim_timer > 0:
-        #     # --- AIMING PHASE ---
-        #     self.aim_timer -= 1
-            
-        #     # Stop all rotation while aiming
-        #     heading_rotation = 0.0
-        #     barrel_rotation = 0.0
-            
-        #     # Fire on the last tick of aiming
-        #     if self.aim_timer == 0:
-        #         should_fire = True
-        # else:
-        #     # --- NORMAL OPERATION PHASE ---
-
-        #     # --- Hull Rotation Logic ---
-        #     self.heading_timer -= 1
-        #     if self.heading_timer <= 0:
-        #         self.current_heading_rotation = random.choice([-15.0, 0, 15.0])
-        #         self.heading_timer = random.randint(30, 90)
-        #     heading_rotation = self.current_heading_rotation
-
-        #     # --- Barrel Scanning Logic ---
-        #     barrel_angle = my_tank_status.get("barrel_angle", 0.0)
-        #     if barrel_angle > 45.0:
-        #         self.barrel_scan_direction = -1.0  # Scan left
-        #     elif barrel_angle < -45.0:
-        #         self.barrel_scan_direction = 1.0  # Scan right
-        #     barrel_rotation = self.barrel_rotation_speed * self.barrel_scan_direction
-
-        #     # --- Shooting Decision ---
-        #     # Decide if we should start aiming
-        #     wants_to_shoot = random.random() < 0.3
-        #     if wants_to_shoot:
-        #         self.aim_timer = 10  # Start aiming for 10 ticks
-
-        # # --- Movement Logic (independent of aiming) ---
-        # self.move_timer -= 1
-        # if self.move_timer <= 0:
-        #     self.current_move_speed = random.choice([30.0, 30.0, 0.0, -10.0])
-        #     self.move_timer = random.randint(1, 10)
-            
-        # ammo_data = my_tank_status.get("ammo", {})
-        # best_ammo_type = None
-
-        # if ammo_data:
-        #     # Znajduje klucz (nazwę amunicji), który ma największą wartość w polu 'count'
-        #     best_ammo_type = max(ammo_data, key=lambda k: ammo_data[k].get("count", 0))
-
-        # return ActionCommand(
-        #     barrel_rotation_angle  = barrel_rotation,
-        #     heading_rotation_angle = heading_rotation,
-        #     move_speed             = self.current_move_speed,
-        #     ammo_to_load           = best_ammo_type,
-        #     should_fire            = should_fire and summary["tactical"]["can_fire"]
-        # )
 
     def destroy(self):
         """Called when tank is destroyed."""

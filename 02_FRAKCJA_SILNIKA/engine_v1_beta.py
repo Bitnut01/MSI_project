@@ -54,7 +54,7 @@ TEAM_B_SPAWN_POINTS = [(185, 15), (185, 60), (185, 95), (185, 165), (185, 195)] 
 TARGET_FPS = 60
 SCALE = 5  # Współczynnik skalowania grafiki (wszystko będzie 4x większe)
 TILE_SIZE = 10  # To MUSI być zgodne z domyślną wartością w map_loader.py
-AGENT_NAME = "random_agent.py" # Nazwa pliku agenta
+AGENT_NAME = "agent007/run_agent.py" # Nazwa pliku agenta
 
 ASSETS_BASE_PATH = os.path.join(current_file_dir, 'frontend', 'assets')
 TILE_ASSETS_PATH = os.path.join(ASSETS_BASE_PATH, 'tiles')

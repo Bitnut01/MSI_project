@@ -1,6 +1,7 @@
 import argparse
 import sys
 import os
+import logging
 
 # Add paths for imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -22,6 +23,25 @@ from src.genetic import ANFIS_Specimen
 # FASTAPI SERVER
 # ============================================================================
 
+
+def configure_logging(level: str = "INFO", log_file: str = None) -> None:
+    handlers = [logging.StreamHandler(sys.stdout)]
+    if log_file:
+        log_dir = os.path.dirname(log_file)
+        if log_dir:
+            os.makedirs(log_dir, exist_ok=True)
+        handlers.append(logging.FileHandler(log_file, encoding="utf-8"))
+
+    logging.basicConfig(
+        level=getattr(logging, level.upper(), logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        handlers=handlers,
+        force=True,
+    )
+
+
+logger = logging.getLogger("agent007.server")
+
 app = FastAPI(
     title="Agent 007",
     description="Her Majesty's Suspicious Agent",
@@ -34,6 +54,7 @@ agent = Agent007(name="Agent 007")
 
 @app.get("/")
 async def root():
+    logger.debug("Health check called")
     return {"message": f"{agent.name} is running", "destroyed": agent.is_destroyed}
 
 
@@ -52,12 +73,18 @@ async def get_action(payload: Dict[str, Any] = Body(...)):
 @app.post("/agent/destroy", status_code=204)
 async def destroy():
     """Called when the tank is destroyed."""
+    logger.info("Received /agent/destroy")
     agent.destroy()
 
 
 @app.post("/agent/end", status_code=204)
 async def end(payload: Dict[str, Any] = Body(...)):
     """Called when the game ends."""
+    logger.info(
+        "Received /agent/end damage_dealt=%s tanks_killed=%s",
+        payload.get('damage_dealt', 0.0),
+        payload.get('tanks_killed', 0),
+    )
     agent.end(
         damage_dealt=payload.get('damage_dealt', 0.0),
         tanks_killed=payload.get('tanks_killed', 0)
@@ -74,7 +101,28 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=8001, help="Port number")
     parser.add_argument("--name", type=str, default=None, help="Agent name")
     parser.add_argument("--genes", type=str, default=None, help="Path to genes JSON file")
+    parser.add_argument("--train", action="store_true", help="Enable Training")
+    parser.add_argument(
+        "--log-level",
+        type=str,
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        help="Logging level",
+    )
+    parser.add_argument(
+        "--log-file",
+        type=str,
+        default=None,
+        help="Optional path to write logs to file",
+    )
+    parser.add_argument(
+        "--log-actions",
+        action="store_true",
+        help="Log action decision for every tick",
+    )
     args = parser.parse_args()
+
+    configure_logging(args.log_level, args.log_file)
     
     if args.name:
         agent.name = args.name
@@ -84,7 +132,19 @@ if __name__ == "__main__":
     if args.genes:
         specimen = ANFIS_Specimen.load_from_file(args.genes)
         agent.load_specimen(specimen)
-        agent.training = True
 
-    print(f"Starting {agent.name} on {args.host}:{args.port}")
-    uvicorn.run(app, host=args.host, port=args.port)
+    if args.train:
+        agent.set_training_mode(True)
+    
+    agent.log_actions = args.log_actions
+
+    logger.info(
+        "Starting %s on %s:%s train=%s log_file=%s log_actions=%s",
+        agent.name,
+        args.host,
+        args.port,
+        args.train,
+        args.log_file,
+        args.log_actions,
+    )
+    uvicorn.run(app, host=args.host, port=args.port, log_level="warning")

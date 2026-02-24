@@ -29,5 +29,5 @@ dev = [
 [tool.pdm.scripts]
 agent = {cmd = "python 03_FRAKCJA_AGENTOW/agent007/run_agent.py --port 8001", env = {"PYTHONPATH" = "."}}
 random = {cmd = "python 03_FRAKCJA_AGENTOW/random_agent.py --port 8002", env = {"PYTHONPATH" = "."}}
-game = {cmd = "python 02_FRAKCJA_SILNIKA/run_game.py --log-level DEBUG", env = {"PYTHONPATH" = "."}} # --log-level DEBUG --quick-test --headless
+game = {cmd = "python 02_FRAKCJA_SILNIKA/run_game.py --log-level DEBUG --quick-test --headless", env = {"PYTHONPATH" = "."}} # --log-level DEBUG --quick-test --headless
 trainer = {cmd = "python 02_FRAKCJA_SILNIKA/train_evolution.py", env = {"PYTHONPATH" = "."}}
