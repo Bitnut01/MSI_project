@@ -73,7 +73,7 @@ class TankConfig:
             TankType.LIGHT: {
                 "max_hp": 80,
                 "max_shield": 30,
-                "top_speed": 5.0,
+                "top_speed": 5.0*25,
                 "vision_range": 70.0,
                 "vision_angle": 40.0,
                 "barrel_spin_rate": 90.0,
@@ -87,7 +87,7 @@ class TankConfig:
             TankType.HEAVY: {
                 "max_hp": 120,
                 "max_shield": 80,
-                "top_speed": 1.0,
+                "top_speed": 1.0*25,
                 "vision_range": 40.0,
                 "vision_angle": 60.0,
                 "barrel_spin_rate": 70.0,
@@ -101,7 +101,7 @@ class TankConfig:
             TankType.SNIPER: {
                 "max_hp": 40,
                 "max_shield": 30,
-                "top_speed": 3.0,
+                "top_speed": 3.0*25,
                 "vision_range": 120.0,
                 "vision_angle": 20.0,
                 "barrel_spin_rate": 100.0,
@@ -146,7 +146,7 @@ class GameRules:
     """Zasady gry."""
 
     friendly_fire: bool = True
-    sudden_death_tick: int = 100000
+    sudden_death_tick: int = 5000
     sudden_death_damage_per_tick: int = -1
     win_condition: str = "team_annihilation"
 

@@ -235,6 +235,8 @@ def tactic_attack(
     dy = ey - my_y
     dist_to_enemy = float(math.hypot(dx, dy))
 
+    # print(dist_to_enemy, nearest["dist"])
+
     # Kąt do wroga (zakładamy atan2 zgodny z układem gry; observer też tak liczy)
     target_heading_deg = float(math.degrees(math.atan2(dy, dx)))
     heading_diff = _angle_diff(target_heading_deg, my_heading)
@@ -266,6 +268,7 @@ def tactic_attack(
     # KROK 4: Ruch na dystans optymalny (punkt docelowy na okręgu wokół wroga)
     # ------------------------------------------------------------------
     weapon_range = float(observer.ballistics.get_range(observer.my_tank))
+    
     if weapon_range <= 0.0:
         weapon_range = 8.0  # fallback
 
@@ -328,9 +331,8 @@ def tactic_attack(
     )
 
     ready = bool(summary["self"].get("is_ready", False))
-    aim_ok = abs(barrel_err) <= 2.5
-    in_range = dist_to_enemy <= (weapon_range + 0.25)
-
+    aim_ok = abs(barrel_err) <= 5
+    # in_range = dist_to_enemy < weapon_range
     # jeśli chcemy konkretną amunicję, to nie strzelaj, gdy załadowana jest inna
     correct_ammo = (
         want_ammo_name is None
@@ -338,8 +340,8 @@ def tactic_attack(
         or ammo_loaded_name == want_ammo_name
     )
 
-    should_fire = bool(ready and aim_ok and in_range and clear_line and correct_ammo)
-
+    should_fire = bool(ready and aim_ok and correct_ammo)
+    
     return ActionCommand(
         barrel_rotation_angle=float(barrel_rot),
         heading_rotation_angle=float(heading_rot),

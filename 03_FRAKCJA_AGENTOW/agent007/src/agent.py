@@ -44,6 +44,10 @@ class Agent007:
 
         self.observer = BattlefieldObserver()
         self.score = 0
+        self.shots = 0
+        self.enemy_detected = 0
+        self.enemy_in_range = 0
+        self.enemy_aim = 0
         self.specimen = None
         self.training = training
         self.strategy_selector = StrategyModel(INPUTS_DEFINITION)
@@ -56,6 +60,11 @@ class Agent007:
         self.observer.set_training_mode(enabled)
             
     def load_specimen(self, specimen: ANFIS_Specimen):
+        self.score = 0
+        self.shots = 0
+        self.enemy_detected = 0
+        self.enemy_in_range = 0
+        self.enemy_aim = 0
         self.specimen = specimen
         self.strategy_selector.set_params_from_genes(specimen)
 
@@ -124,21 +133,31 @@ class Agent007:
         # NEW CODE =========================================================
         self.observer.update(my_tank_status, sensor_data, enemies_remaining)
         summary = self.observer.get_summary()
-        
+
         current_strategy = self.decide_strategy(summary)
         self.strategy_counts[current_strategy.name] += 1
         # ==================================================================
         
-        # enemy = summary["radar"]["nearest_enemy"]
+        enemy = summary["radar"]["nearest_enemy"]
 
-        # if enemy is not None:
-        #     current_strategy = StrategyType.ATTACK
-        # else:
-        #     current_strategy = StrategyType.SEARCH
+        if enemy is not None:
+            current_strategy = StrategyType.ATTACK
 
         action = get_action_to_tactics(current_strategy, self.observer, self.tactic_state)
 
+        if self.training:
+            self.local_stats(summary, action)
+
         return action
+
+    def local_stats(self, summary, action: ActionCommand):
+        if action.should_fire and summary.get("self", {}).get("reload_ticks", 0.0) == 0.0:
+            self.shots += 1
+
+        if summary.get("radar", {}).get("nearest_enemy") is not None:
+            self.enemy_detected += 1
+            self.enemy_in_range += (summary.get("tactical", {}).get("can_fire", False))*1
+            self.enemy_aim  += abs(summary.get("tactical", {}).get("rotation_to_target", 100)) < 10
 
     def destroy(self):
         """Called when tank is destroyed."""
@@ -150,6 +169,11 @@ class Agent007:
         print(f"[{self.name}] Game ended!")
         print(f"[{self.name}] Damage dealt: {damage_dealt}")
         print(f"[{self.name}] Tanks killed: {tanks_killed}")
+
+        if self.training:
+            print(f"[{self.name}] Enemy detected ticks: {self.enemy_detected} | Times fired: {self.shots} | Time in range: {self.enemy_in_range} | Time aimed: {self.enemy_aim}")
+                                                               
+
         if self.training and self.specimen:
             self._score_genotype(damage_dealt, tanks_killed)
             self._save_strategy_counts()

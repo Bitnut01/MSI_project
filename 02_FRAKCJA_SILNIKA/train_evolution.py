@@ -46,7 +46,7 @@ class GeneticTraining:
     AGENT_LOG_DIR = os.getenv("AGENT_LOG_DIR", "")
     COMBAT_MODE = os.getenv("TRAIN_COMBAT_MODE", "1").lower() in {"1", "true", "yes", "on"}
     TRAIN_MAP_SEED = os.getenv("TRAIN_MAP_SEED", "open.csv")
-    TRAIN_SUDDEN_DEATH_TICK = int(os.getenv("TRAIN_SUDDEN_DEATH_TICK", "320"))
+    TRAIN_SUDDEN_DEATH_TICK = int(os.getenv("TRAIN_SUDDEN_DEATH_TICK", "460"))
     TRAIN_SUDDEN_DEATH_DAMAGE = int(os.getenv("TRAIN_SUDDEN_DEATH_DAMAGE", "-3"))
     TRAIN_DISABLE_POWERUPS = os.getenv("TRAIN_DISABLE_POWERUPS", "1").lower() in {"1", "true", "yes", "on"}
     TRAIN_FRONT_GAP = float(os.getenv("TRAIN_FRONT_GAP", "24"))
@@ -178,57 +178,63 @@ class GeneticTraining:
                 self.best = epoch_best
 
     def run_generation(self):
-        agent_processes = []
+        b = 0
+        for specimen_batch in batched(self.specimens, n = 10):
+            agent_processes = []
+            for i, specimen in enumerate(specimen_batch):
+                port = self.BASE_PORT + i
+                gene_path = f"genes_bot_{port + b*10}.json"
+                specimen.save_to_file(gene_path)
+
+                proc = subprocess.Popen([
+                    sys.executable, os.path.join(agent_dir, "run_agent.py"), 
+                    "--port", str(port),
+                    "--genes", gene_path,
+                    "--train",
+                    "--log-level", self.AGENT_LOG_LEVEL,
+                    *(
+                        ["--log-file", os.path.join(self.AGENT_LOG_DIR, f"agent_{port}.log")]
+                        if self.AGENT_LOG_DIR
+                        else []
+                    ),
+                    *(["--log-actions"] if self.AGENT_LOG_ACTIONS else []),
+                ])
+                agent_processes.append(proc)
+
+            # Czas na wstanie FastAPI
+            time.sleep(1)
+
+            # 2. Uruchom silnik gry (Headless)
+            try:
+                if self.COMBAT_MODE:
+                    cfg = self._build_training_config()
+                    spawn_points = self._build_close_spawn_points(cfg)
+                    game_loop = game_loop_module.GameLoop(
+                        config=cfg,
+                        headless=False,
+                        spawn_points=spawn_points,
+                    )
+                    try:
+                        if game_loop.initialize_game(map_seed=self.TRAIN_MAP_SEED):
+                            results = game_loop.run_game_loop()
+                        else:
+                            results = {"success": False, "error": "Initialization failed"}
+                    finally:
+                        game_loop.cleanup_game()
+                else:
+                    results = run_game(headless=True)
+                print(results)
+            finally:
+                for p in agent_processes:
+                    p.terminate()
+            
+            b += 1
         
-        for i, specimen in enumerate(self.specimens):
-            port = self.BASE_PORT + i
-            gene_path = f"genes_bot_{port}.json"
-            specimen.save_to_file(gene_path)
-
-            proc = subprocess.Popen([
-                sys.executable, os.path.join(agent_dir, "run_agent.py"), 
-                "--port", str(port),
-                "--genes", gene_path,
-                "--train",
-                "--log-level", self.AGENT_LOG_LEVEL,
-                *(
-                    ["--log-file", os.path.join(self.AGENT_LOG_DIR, f"agent_{port}.log")]
-                    if self.AGENT_LOG_DIR
-                    else []
-                ),
-                *(["--log-actions"] if self.AGENT_LOG_ACTIONS else []),
-            ])
-            agent_processes.append(proc)
-
-         # Czas na wstanie FastAPI
-        time.sleep(5)
-
-        # 2. Uruchom silnik gry (Headless)
-        try:
-            if self.COMBAT_MODE:
-                cfg = self._build_training_config()
-                spawn_points = self._build_close_spawn_points(cfg)
-                game_loop = game_loop_module.GameLoop(
-                    config=cfg,
-                    headless=True,
-                    spawn_points=spawn_points,
-                )
-                try:
-                    if game_loop.initialize_game(map_seed=self.TRAIN_MAP_SEED):
-                        results = game_loop.run_game_loop()
-                    else:
-                        results = {"success": False, "error": "Initialization failed"}
-                finally:
-                    game_loop.cleanup_game()
-            else:
-                results = run_game(headless=True)
-            print(results)
-        finally:
-            for p in agent_processes:
-                p.terminate()
-            for i in range(len(self.specimens)):
-                self.specimens[i] = ANFIS_Specimen.load_from_file(f"genes_bot_{self.BASE_PORT + i}.json")
-            self._print_strategy_counts(len(self.specimens))
+        
+        for i in range(len(self.specimens)):
+            self.specimens[i] = ANFIS_Specimen.load_from_file(f"genes_bot_{self.BASE_PORT + i}.json")
+        self._print_strategy_counts(len(self.specimens))
+            
 
     def _print_strategy_counts(self, specimen_count: int) -> None:
         totals: dict[str, int] = {}
@@ -257,9 +263,10 @@ class GeneticTraining:
 
 def main():
     specimens = [
-        ANFIS_Specimen.generate_random(INPUTS_DEFINITION) for _ in range(10)
+        # ANFIS_Specimen.generate_random(INPUTS_DEFINITION) for _ in range(100)
+        ANFIS_Specimen.load_from_file(f"genes_bot_{8001 + i}.json") for i in range(100)
     ]
-    trainer = GeneticTraining(specimens, "ranking", epoch=100)
+    trainer = GeneticTraining(specimens, "ranking", epoch=4)
     trainer.fit()
 
 if __name__ == "__main__":

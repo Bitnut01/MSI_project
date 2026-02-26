@@ -102,7 +102,7 @@ class BallisticsModule:
         ammo_type = tank.get("ammo_loaded")
         if not ammo_type:
             return 0.0
-        ranges = {"HEAVY": 5.0, "LIGHT": 10.0, "LONG_DISTANCE": 20.0}
+        ranges = {"HEAVY": 12.5, "LIGHT": 40.0, "LONG_DISTANCE": 85.0}
         return float(ranges.get(ammo_type, 0.0))
 
     def get_rotation_to_target(self, my_tank: Dict, target_pos: Dict) -> float:
@@ -250,7 +250,7 @@ class BattlefieldObserver:
         if not nearest or self.my_tank.get("_reload_timer", 0) > 0:
             return False
         
-        in_range = nearest['dist'] <= w_range
+        in_range = nearest['dist'] < w_range
         clear_line = self.ballistics.is_line_of_fire_clear(
             self.my_tank["position"], nearest['tank_data']["position"], self.radar.allies
         )
