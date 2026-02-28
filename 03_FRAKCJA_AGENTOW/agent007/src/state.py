@@ -51,7 +51,6 @@ class IterState:
     motion_ticks_left: int = 0
     rotation_dir: int = 1  # 1=left, -1=right
 
-    # "intencja" po recovery (do czego wracamy po BACKUP+ROTATE)
     desired_mode: MotionMode = MotionMode.FORWARD
     desired_speed: float = 5.0
 
@@ -181,14 +180,7 @@ class IterState:
         enable_stuck: bool = True,
         enable_terrein: bool = True,
     ) -> Tuple[float, float]:
-        """
-        Zwraca: (speed, heading_rot)
 
-        Zasada:
-        - BACKUP/ROTATE są nieprzerywalne (ignorują guardy).
-        - FORWARD/GOTO automatycznie uwzględniają guardy (border/obstacle/stuck).
-          Możesz je per-taktyka włączać/wyłączać flagami enable_*.
-        """
         curr = summary["self"]["pos"]
         curr_x = float(curr["x"])
         curr_y = float(curr["y"])
@@ -240,23 +232,22 @@ class IterState:
                 stuck_hit = self.guard_stuck(curr_x, curr_y, rec_cfg)
 
             if border_hit or obstacle_hit or terrain_hit:
-                # przy granicy i przeszkodzie: lepiej BACKUP -> ROTATE
+                
                 self._enter_backup(rec_cfg)
                 continue
 
             if stuck_hit:
-                # jeśli stoimy w miejscu, czasem wystarczy sama rotacja
+                
                 self._enter_rotate(rec_cfg)
                 continue
 
-            # brak recovery -> wykonaj ruch "normalny"
             if self.motion_mode == MotionMode.FORWARD:
                 speed = self.desired_speed
                 heading_rot = 0.0
                 self.last_heading_cmd = heading_rot
                 return speed, heading_rot
 
-            # GOTO: skręcaj w stronę targetu
+
             if self.goto_x is None or self.goto_y is None:
                 speed = self.desired_speed
                 heading_rot = 0.0
@@ -276,12 +267,9 @@ class IterState:
             target_angle = float(np.degrees(np.arctan2(dy, dx)))
             err = _wrap_angle_deg(target_angle - heading)
 
-            # Sterowanie proporcjonalne + ograniczenie do max ROT_ANG/tick
-            # k dobierz: 0.5..2.0 (większe = agresywniejszy skręt)
             k = 1.0
             heading_rot = _clamp(k * err, -float(rot_ang), float(rot_ang))
 
-            # Deadband żeby nie "mielił" gdy prawie prosto
             if abs(err) < 1.0:
                 heading_rot = 0.0
 
@@ -289,5 +277,4 @@ class IterState:
             self.last_heading_cmd = heading_rot
             return speed, heading_rot
 
-        # fallback (nie powinno się zdarzyć)
         return 0.0, 0.0

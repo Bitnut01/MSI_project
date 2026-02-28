@@ -4,11 +4,10 @@ import random
 from typing import Dict, Tuple, List, Any
 import heapq
 
-# Zakładam, że te klasy można zaimportować z Twojej struktury projektu
 from .strategy import StrategyType
 from .observer import BattlefieldObserver
 from .state import *
-# from .agent import ActionCommand  # Pamiętaj o zaimportowaniu ActionCommand!
+
 
 from pydantic import BaseModel
 
@@ -35,15 +34,14 @@ class Commander():
     
 
 def get_best_ammo(my_tank: Dict[str, Any]) -> str:
-    """Wybiera typ amunicji, którego jest najwięcej."""
+
     ammo_data = my_tank.get("ammo", {})
     if not ammo_data:
         return "DEFAULT"
     return max(ammo_data, key=lambda k: ammo_data[k].get("count", 0))
 
 def get_heading_to_pos(my_tank: Dict[str, Any], target_pos: Dict[str, float]) -> float:
-    """Oblicza wymaganą rotację kadłuba, by skierować się w stronę target_pos."""
-    # UWAGA: Dostosuj klucz 'angle' do tego, jak Twoje API nazywa kąt kadłuba
+
     my_angle = my_tank.get("heading", 0.0) 
     dx = target_pos["x"] - my_tank["position"]["x"]
     dy = target_pos["y"] - my_tank["position"]["y"]
@@ -78,10 +76,7 @@ def _get_escape_target(
     *,
     retreat_dist: float,
 ) -> Tuple[float, float, bool]:
-    """
-    Zwraca (tx, ty, has_enemy).
-    tx,ty to punkt w kierunku "od najbliższego wroga" (z clamplem do mapy).
-    """
+
     nearest = summary["radar"]["nearest_enemy"]
     my_pos = summary["self"]["pos"]
     mx = float(my_pos["x"])
@@ -119,7 +114,7 @@ def _get_escape_target(
     return tx, ty, True
 
 def _wrap_angle_deg(a: float) -> float:
-    # wynik w [-180, 180)
+
     return (a + 180.0) % 360.0 - 180.0
 
 
@@ -131,7 +126,7 @@ def _clamp(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, x))
 
 def _get_top_speed(my_tank: Any, default: float = 4.0) -> float:
-    # działa i dla dict, i dla dataclass/obiektu
+
     if isinstance(my_tank, dict):
         return float(my_tank.get("_top_speed", default))
     return float(getattr(my_tank, "_top_speed", default))
@@ -146,16 +141,8 @@ def tactic_attack(
     observer: BattlefieldObserver,
     state: IterState,
 ) -> ActionCommand:
-    """
-    Taktyka ataku:
-    1) Jeśli nie ma wroga -> jedź/szukaj.
-    2) Jeśli jest wróg -> utrzymuj dystans ~0.9 zasięgu, kadłub pomaga w celowaniu,
-       lufa stabilnie domyka cel (mniej jitteru) i strzelaj dopiero gdy wycelowane.
-    """
 
-    # ------------------------------------------------------------------
-    # Lokalne helpery (żeby funkcja była kompletna)
-    # ------------------------------------------------------------------
+
     def _norm_angle(a: float) -> float:
         return (a + 180.0) % 360.0 - 180.0
 
@@ -171,11 +158,11 @@ def tactic_attack(
     def _as_enum_name(v: Any) -> Optional[str]:
         if v is None:
             return None
-        name = getattr(v, "name", None)  # Enum -> "LIGHT"
+        name = getattr(v, "name", None) 
         if isinstance(name, str):
             return name
         if isinstance(v, str):
-            # "AmmoType.LIGHT" -> "LIGHT"
+
             return v.split(".")[-1]
         return str(v)
 
@@ -183,21 +170,16 @@ def tactic_attack(
         name = _as_enum_name(v)
         if name is None:
             return None
-        # U Ciebie ActionCommand w agencie ma ammo_to_load: str, więc wysyłamy string.
+
         return f"AmmoType.{name}"
 
-    # ------------------------------------------------------------------
-    # Dane wejściowe
-    # ------------------------------------------------------------------
     nearest = summary.get("radar", {}).get("nearest_enemy")
     ammo_to_load = get_best_ammo(observer.my_tank)
 
     rot_ang = float(globals().get("ROT_ANG", 30.0))
     barrel_spin_fallback = float(globals().get("BARREL_SPIN_RATE", 90.0))
 
-    # ------------------------------------------------------------------
-    # KROK 1: Brak wroga -> ruch + skan (tu: lufa spokojnie)
-    # ------------------------------------------------------------------
+
     if nearest is None:
         state.set_forward(speed=5.0)
         speed, heading_rot = state.motion_step(
@@ -218,9 +200,6 @@ def tactic_attack(
             should_fire=False,
         )
 
-    # ------------------------------------------------------------------
-    # KROK 2: Jest wróg -> geometria
-    # ------------------------------------------------------------------
     my_pos = summary["self"]["pos"]
     my_x = float(my_pos["x"])
     my_y = float(my_pos["y"])
@@ -235,38 +214,28 @@ def tactic_attack(
     dy = ey - my_y
     dist_to_enemy = float(math.hypot(dx, dy))
 
-    # print(dist_to_enemy, nearest["dist"])
 
-    # Kąt do wroga (zakładamy atan2 zgodny z układem gry; observer też tak liczy)
     target_heading_deg = float(math.degrees(math.atan2(dy, dx)))
     heading_diff = _angle_diff(target_heading_deg, my_heading)
 
-    # ------------------------------------------------------------------
-    # KROK 3: Stabilne sterowanie lufą (mniej jitteru) + obsługa 2 konwencji
-    # ------------------------------------------------------------------
-    # A) barrel_angle absolutny (światowy)
+
     err_abs = _angle_diff(target_heading_deg, my_barrel)
 
-    # B) barrel_angle relatywny do kadłuba (częste w silnikach)
+
     desired_rel = _angle_diff(target_heading_deg, my_heading)
     err_rel = _angle_diff(desired_rel, my_barrel)
 
-    # Heurystyka: wybierz mniejszy błąd
     barrel_err = err_rel if abs(err_rel) < abs(err_abs) else err_abs
 
     barrel_spin = float(
         observer.my_tank.get("_barrel_spin_rate", barrel_spin_fallback)
     )
 
-    # Deadzone + sterowanie proporcjonalne
     if abs(barrel_err) < 1.5:
         barrel_rot = 0.0
     else:
         barrel_rot = _clamp_rotation_delta(barrel_err * 0.6, barrel_spin)
 
-    # ------------------------------------------------------------------
-    # KROK 4: Ruch na dystans optymalny (punkt docelowy na okręgu wokół wroga)
-    # ------------------------------------------------------------------
     weapon_range = float(observer.ballistics.get_range(observer.my_tank))
     
     if weapon_range <= 0.0:
@@ -283,11 +252,10 @@ def tactic_attack(
         err_dist = dist_to_enemy - optimal_dist
         desired_speed = _clamp(err_dist * 0.5, -top_speed, top_speed)
 
-    # Duży błąd kadłuba -> zwolnij, żeby szybciej się obrócić
+
     if abs(heading_diff) > 45.0:
         desired_speed *= 0.1
 
-    # Punkt docelowy: utrzymaj się w odległości optimal_dist od wroga
     if dist_to_enemy > 1e-6:
         ux = (my_x - ex) / dist_to_enemy
         uy = (my_y - ey) / dist_to_enemy
@@ -309,7 +277,6 @@ def tactic_attack(
         enable_terrein=False,
     )
 
-    # Kadłub „pomaga” w walce (blend z nawigacją), ale nie gdy przeszkoda przed nami
     heading_spin = float(observer.my_tank.get("_heading_spin_rate", rot_ang))
     face_enemy_rot = _clamp_rotation_delta(heading_diff * 0.7, heading_spin)
 
@@ -318,9 +285,7 @@ def tactic_attack(
     if close_combat and not obstacle_ahead:
         heading_rot = (0.3 * float(heading_rot)) + (0.7 * float(face_enemy_rot))
 
-    # ------------------------------------------------------------------
-    # KROK 5: Strzał tylko gdy: gotowy + w zasięgu + wycelowane + czysta linia
-    # ------------------------------------------------------------------
+
     ammo_loaded_name = _as_enum_name(observer.my_tank.get("ammo_loaded"))
     want_ammo_name = _as_enum_name(ammo_to_load)
 
@@ -332,8 +297,7 @@ def tactic_attack(
 
     ready = bool(summary["self"].get("is_ready", False))
     aim_ok = abs(barrel_err) <= 5
-    # in_range = dist_to_enemy < weapon_range
-    # jeśli chcemy konkretną amunicję, to nie strzelaj, gdy załadowana jest inna
+
     correct_ammo = (
         want_ammo_name is None
         or ammo_loaded_name is None
@@ -361,7 +325,6 @@ def tactic_flee(summary: Dict[str, Any], observer: BattlefieldObserver, state: I
         if state.motion_mode not in (MotionMode.BACKUP, MotionMode.ROTATE):
             state.motion_mode = state.desired_mode
 
-    # Bez wroga: zachowuj się jak "idle" (stój i skanuj)
     if nearest is None:
         state.goto_x = None
         state.goto_y = None
@@ -384,7 +347,6 @@ def tactic_flee(summary: Dict[str, Any], observer: BattlefieldObserver, state: I
     ex = float(enemy_pos["x"])
     ey = float(enemy_pos["y"])
 
-    # wektor ucieczki: od wroga
     vx = mx - ex
     vy = my - ey
     n = math.hypot(vx, vy)
@@ -398,7 +360,6 @@ def tactic_flee(summary: Dict[str, Any], observer: BattlefieldObserver, state: I
     dist_enemy = float(math.hypot(ex - mx, ey - my))
     retreat_dist = float(_clamp(35.0 + (25.0 - dist_enemy) * 1.5, 35.0, 90.0))
 
-    # wybór lepszego punktu (żeby clamp przy granicy nie psuł ucieczki)
     base_ang = math.atan2(vy, vx)
     offsets = [
         0.0,
@@ -431,7 +392,6 @@ def tactic_flee(summary: Dict[str, Any], observer: BattlefieldObserver, state: I
             best_score = score
             best_tx, best_ty = tx, ty
 
-    # jeśli kadłub jeszcze jest "w stronę wroga" i wróg blisko -> skręć w miejscu
     to_enemy_x = ex - mx
     to_enemy_y = ey - my
     h = math.radians(heading_deg)
@@ -481,15 +441,14 @@ def tactic_save(summary: Dict[str, Any], observer: BattlefieldObserver, state: I
     rec_cfg = _rec_cfg_default()
 
     def _apply_desired_mode_now() -> None:
-        # Nie przerywaj BACKUP/ROTATE, ale normalnie przełącz tryb od razu.
+
         if state.motion_mode not in (MotionMode.BACKUP, MotionMode.ROTATE):
             state.motion_mode = state.desired_mode
 
     terrain_damage = int(summary["self"].get("terrain_damage", 0))
 
-    # SAFE: bez dmg -> stoję i kręcę wieżyczką (bez analizy wrogów)
+
     if terrain_damage <= 0:
-        # Wyczyść ewentualny stary cel GOTO
         state.goto_x = None
         state.goto_y = None
 
@@ -497,7 +456,6 @@ def tactic_save(summary: Dict[str, Any], observer: BattlefieldObserver, state: I
         state.set_forward(speed=0.0)
         _apply_desired_mode_now()
 
-        # Opcjonalnie: przerwij recovery, żeby faktycznie stać
         state.motion_mode = MotionMode.FORWARD
         state.motion_ticks_left = 0
 
@@ -509,23 +467,21 @@ def tactic_save(summary: Dict[str, Any], observer: BattlefieldObserver, state: I
             should_fire=False,
         )
 
-    # DAMAGE: trzeba zejść z terenu (bez patrzenia na wrogów)
     my_pos = summary["self"]["pos"]
     mx = float(my_pos["x"])
     my = float(my_pos["y"])
 
-    # Jeśli nie mamy sensownego targetu ucieczki, wybierz losowy punkt niedaleko
     need_new_target = state.goto_x is None or state.goto_y is None
     if not need_new_target:
         dist_to_target = float(
             math.hypot(float(state.goto_x) - mx, float(state.goto_y) - my)
         )
-        # jak już prawie doszliśmy, losuj kolejny punkt (aż trafimy poza dmg)
+
         if dist_to_target <= max(2.0, state.goto_stop_radius):
             need_new_target = True
 
     if need_new_target:
-        # losuj kierunek i punkt w promieniu ~20-35
+
         ang = math.radians(random.uniform(0.0, 360.0))
         step = random.uniform(20.0, 35.0)
         tx = mx + math.cos(ang) * step
@@ -538,8 +494,7 @@ def tactic_save(summary: Dict[str, Any], observer: BattlefieldObserver, state: I
 
     _apply_desired_mode_now()
 
-    # Tu CELOWO wyłączam guard_terrain, bo on robi BACKUP/ROTATE w kółko
-    # (a my chcemy po prostu wyjść z pola, nawet jeśli przez chwilę jeszcze boli).
+
     speed, heading_rot = state.motion_step(
         summary,
         rot_ang=ROT_ANG,
@@ -630,7 +585,7 @@ def tactic_powerup(summary: Dict[str, Any], observer: BattlefieldObserver, state
         far_penalty = 0.002 * dist * dist
         return heal_boost + 10.0 * efficiency - far_penalty
 
-    # --- 1) LOCK target: jeśli aktualny goto jest blisko któregoś powerupa, trzymaj go ---
+
     locked: Optional[Tuple[str, Dict[str, Any]]] = None
     if state.goto_x is not None and state.goto_y is not None:
         gx = float(state.goto_x)
@@ -663,12 +618,10 @@ def tactic_powerup(summary: Dict[str, Any], observer: BattlefieldObserver, state
     ty = float(pos["y"])
     dist = float(best.get("dist", math.hypot(tx - mx, ty - my)))
 
-    # --- 2) Sterowanie: zmniejsz prędkość gdy trzeba mocno skręcać ---
     target_angle = math.degrees(math.atan2(ty - my, tx - mx))
     err = wrap_angle_deg(target_angle - heading_deg)
     aerr = abs(err)
 
-    # bazowa prędkość z dystansu
     if dist > 80.0:
         base_speed = 5.0
     elif dist > 30.0:
@@ -676,7 +629,6 @@ def tactic_powerup(summary: Dict[str, Any], observer: BattlefieldObserver, state
     else:
         base_speed = 3.0
 
-    # gating po kącie: mniej zygzaka
     if aerr > 70.0:
         speed_cmd = 0.0  # obróć się w miejscu
     elif aerr > 40.0:
@@ -686,7 +638,6 @@ def tactic_powerup(summary: Dict[str, Any], observer: BattlefieldObserver, state
 
     state.set_goto(x=tx, y=ty, speed=speed_cmd, stop_radius=4.0)
 
-    # kluczowe: przełącz na GOTO od razu (jeśli nie recovery)
     if state.motion_mode not in (MotionMode.BACKUP, MotionMode.ROTATE):
         state.motion_mode = MotionMode.GOTO
 
@@ -722,11 +673,6 @@ def tactic_powerup(summary: Dict[str, Any], observer: BattlefieldObserver, state
     
 
 def tactic_reload(summary: Dict[str, Any], observer: BattlefieldObserver, state: IterState) -> ActionCommand:
-    """
-    Cel: odsunąć się od najbliższego wroga podczas przeładowania.
-    Prosto: wybieramy punkt "za sobą" względem wroga i jedziemy do niego (GOTO),
-    a FSM ogarnia granice/kolizje/stuck oraz dokańcza BACKUP/ROTATE.
-    """
 
     nearest = summary["radar"]["nearest_enemy"]
 
@@ -762,9 +708,6 @@ def tactic_reload(summary: Dict[str, Any], observer: BattlefieldObserver, state:
         should_fire=False,
     )
 
-# ============================================================================
-# GŁÓWNY ROUTER TAKTYK
-# ============================================================================
 
 def get_action_to_tactics(strategy: StrategyType, observer: BattlefieldObserver, state: IterState) -> ActionCommand:
     """
@@ -773,7 +716,6 @@ def get_action_to_tactics(strategy: StrategyType, observer: BattlefieldObserver,
     """
     summary = observer.get_summary()
 
-    # Słownik pełniący rolę instrukcji `switch/match`
     tactics_map = {
         StrategyType.ATTACK: tactic_attack,
         StrategyType.FLEE: tactic_flee,
@@ -783,6 +725,5 @@ def get_action_to_tactics(strategy: StrategyType, observer: BattlefieldObserver,
         #StrategyType.RELOAD: tactic_reload,
     }
 
-    # Pobieramy odpowiednią funkcję i ją uruchamiamy
     tactic_function = tactics_map.get(strategy, tactic_search)
     return tactic_function(summary, observer, state)
