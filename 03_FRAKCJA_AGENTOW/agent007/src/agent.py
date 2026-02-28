@@ -138,10 +138,10 @@ class Agent007:
         self.strategy_counts[current_strategy.name] += 1
         # ==================================================================
         
-        enemy = summary["radar"]["nearest_enemy"]
+        # enemy = summary["radar"]["nearest_enemy"]
 
-        if enemy is not None:
-            current_strategy = StrategyType.ATTACK
+        # if enemy is not None:
+        #     current_strategy = StrategyType.ATTACK
 
         action = get_action_to_tactics(current_strategy, self.observer, self.tactic_state)
 
