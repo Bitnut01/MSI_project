@@ -66,8 +66,8 @@ class ANFIS_Specimen:
     def flatten(self) -> np.ndarray:
         genes_map = {line.name: line for line in self.genes}
     
-        # Sklejamy parametry przesłanek (muszą być 4 na każdą funkcję)
-        # W Twoim systemie to mid, top i side
+        # Sklejamy parametry przesłanek 
+
         premises_parts = []
         mid = genes_map['mid'].line
         top = genes_map['top'].line

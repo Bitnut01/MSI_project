@@ -1,6 +1,5 @@
 from __future__ import annotations
 import math
-from typing import Dict, List, Any, Optional, Tuple
 import numpy as np
 
 from .api import (
@@ -11,10 +10,10 @@ from .api import (
 
 class RadarModule:
     def __init__(self):
-        self.enemies: List[Dict[str, Any]] = []
-        self.allies: List[Dict[str, Any]] = []
+        self.enemies: list[dict[str, object]] = []
+        self.allies: list[dict[str, object]] = []
 
-    def update(self, my_tank: Dict, seen_tanks: List[Dict]):
+    def update(self, my_tank: dict, seen_tanks: list[dict]):
         self.enemies.clear()
         self.allies.clear()
         
@@ -32,7 +31,7 @@ class RadarModule:
                 })
         self.enemies.sort(key=lambda x: x['dist'])
 
-    def _is_aiming(self, enemy: Dict, my_tank: Dict) -> bool:
+    def _is_aiming(self, enemy: dict, my_tank: dict) -> bool:
         dx, dy = my_tank["position"]["x"] - enemy["position"]["x"], my_tank["position"]["y"] - enemy["position"]["y"]
         angle_to_me = math.degrees(math.atan2(dy, dx))
         diff = (enemy["barrel_angle"] - angle_to_me + 180) % 360 - 180
@@ -40,9 +39,9 @@ class RadarModule:
 
 class LogisticsModule:
     def __init__(self):
-        self.closest_powerups: Dict[str, Dict[str, Any]] = {}
+        self.closest_powerups: dict[str, dict[str, object]] = {}
 
-    def update(self, my_pos: Dict, seen_powerups: List[Dict[str, Any]]) -> None:
+    def update(self, my_pos: dict, seen_powerups: list[dict[str, object]]) -> None:
         self.closest_powerups.clear()
 
         mx = float(my_pos["x"])
@@ -57,7 +56,6 @@ class LogisticsModule:
 
                 raw_type = pu["powerup_type"]  # np. "PowerUpType.SHIELD"
                 if not isinstance(raw_type, str):
-                    # jeśli kiedyś wróci enum, to zadziała też na nim:
                     enum_obj = raw_type
                 else:
                     enum_name = raw_type.split(".")[-1]  # "SHIELD"
@@ -80,7 +78,7 @@ class LogisticsModule:
                 }
 
 
-    # def update(self, my_pos: Dict, seen_powerups: List[Dict]):
+    # def update(self, my_pos: dict, seen_powerups: list[dict]):
     #     self.closest_powerups.clear()
     #     for pu in seen_powerups:
     #         try:
@@ -98,14 +96,14 @@ class LogisticsModule:
     #             pass
 
 class BallisticsModule:
-    def get_range(self, tank: Dict) -> float:
+    def get_range(self, tank: dict) -> float:
         ammo_type = tank.get("ammo_loaded")
         if not ammo_type:
             return 0.0
         ranges = {"HEAVY": 12.5, "LIGHT": 40.0, "LONG_DISTANCE": 85.0}
         return float(ranges.get(ammo_type, 0.0))
 
-    def get_rotation_to_target(self, my_tank: Dict, target_pos: Dict) -> float:
+    def get_rotation_to_target(self, my_tank: dict, target_pos: dict) -> float:
         dx, dy = target_pos["x"] - my_tank["position"]["x"], target_pos["y"] - my_tank["position"]["y"]
         
         # Korekta dla układu współrzędnych ekranowych (Y rośnie w dół):
@@ -126,7 +124,7 @@ class BallisticsModule:
         diff = target_angle - current_barrel_angle
         return (diff + 180) % 360 - 180
 
-    def is_line_of_fire_clear(self, my_pos: Dict, target_pos: Dict, allies: List[Dict]) -> bool:
+    def is_line_of_fire_clear(self, my_pos: dict, target_pos: dict, allies: list[dict]) -> bool:
         dx, dy = target_pos["x"] - my_pos["x"], target_pos["y"] - my_pos["y"]
         dist = math.sqrt(dx**2 + dy**2)
         if dist < 1: return True
@@ -143,13 +141,13 @@ class BallisticsModule:
     
 class EnvironmentModule:
     def __init__(self, grid_size: int = 10, map_size: tuple = (500, 500)):
-        self.obstacles: Dict[str, Dict] = {}
-        self.terrains: Dict[str, Dict] = {}
-        self.current_terrain: Optional[Dict] = None
+        self.obstacles: dict[str, dict] = {}
+        self.terrains: dict[str, dict] = {}
+        self.current_terrain: dict | None = None
         self.grid_size = grid_size
         self.map_w, self.map_h = map_size
 
-    def update(self, my_pos: Dict, sensor_data: Dict):
+    def update(self, my_pos: dict, sensor_data: dict):
         for obs in sensor_data.get("seen_obstacles", []):
             self.obstacles[obs["id"]] = obs
             
@@ -160,11 +158,11 @@ class EnvironmentModule:
 
         self.current_terrain = self._find_terrain_at(my_pos)
 
-    def _find_terrain_at(self, pos: Dict) -> Optional[Dict]:
+    def _find_terrain_at(self, pos: dict) -> dict | None:
         gx, gy = self.world_to_grid(pos)
         return self.terrains.get(f"{gx}_{gy}")
 
-    def get_navigation_graph(self) -> Dict[Tuple[int, int], List[Tuple[Tuple[int, int], float]]]:
+    def get_navigation_graph(self) -> dict[tuple[int, int], list[tuple[tuple[int, int], float]]]:
         """
         Returns a graph where each node maps to a list of (neighbor_tuple, edge_weight).
         Weight = Step Distance + Terrain Damage.
@@ -206,20 +204,20 @@ class EnvironmentModule:
         for obs in self.obstacles.values():
             ox, oy = obs["position"]["x"], obs["position"]["y"]
             # Simplified collision check
-            if abs(ox - wx) < 8 and abs(oy - wy) < 8: #changed form 8 to 15
+            if abs(ox - wx) < 8 and abs(oy - wy) < 8: 
                 return True
         return False
 
-    def world_to_grid(self, pos: Dict) -> Tuple[int, int]:
+    def world_to_grid(self, pos: dict) -> tuple[int, int]:
         return (int(pos["x"] // self.grid_size), int(pos["y"] // self.grid_size))
     
-    def get_movement_multiplier(self, pos: Optional[Dict] = None) -> float:
+    def get_movement_multiplier(self, pos: dict | None = None) -> float:
         terrain = self._find_terrain_at(pos) if pos else self.current_terrain
         if not terrain: 
             return 1.0
         return terrain.get("speed_modifier", 1.0)
 
-    def get_terrain_danger(self, pos: Optional[Dict] = None) -> int:
+    def get_terrain_danger(self, pos: dict | None = None) -> int:
         terrain = self._find_terrain_at(pos) if pos else self.current_terrain
         if not terrain: 
             return 0
@@ -246,7 +244,7 @@ class BattlefieldObserver:
     def set_training_mode(self, enabled: bool) -> None:
         self.training_mode = enabled
 
-    def _can_shoot(self, nearest: Optional[Dict], w_range: float) -> bool:
+    def _can_shoot(self, nearest: dict | None, w_range: float) -> bool:
         if not nearest or self.my_tank.get("_reload_timer", 0) > 0:
             return False
         
@@ -273,20 +271,20 @@ class BattlefieldObserver:
                 ox = obs["position"]["x"]
                 oy = obs["position"]["y"]
                 
-                # METODA OKRĄGŁEGO HITBOXA (Zalecana)
+
                 # Oblicza dokładną odległość w linii prostej między sprawdzanym punktem a przeszkodą.
                 # Kolizja z okręgiem sprawia, że czołg płynniej ześlizguje się z narożników.
                 dist = math.hypot(target_x - ox, target_y - oy)
                 
                 # 8.0 to tolerancja (wielkość przeszkody). 
-                # W API mają rozmiar [10, 10], więc promień 7-8 jednostek jest optymalny.
+                # W API mają rozmiar [10, 10]
                 if dist < 8.0: 
                     return True
                     
 
         return False
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, object]:
         nearest = self.radar.enemies[0] if self.radar.enemies else None
         curr_range = self.ballistics.get_range(self.my_tank)
         reload_ticks = self.my_tank.get("_reload_timer", 0)

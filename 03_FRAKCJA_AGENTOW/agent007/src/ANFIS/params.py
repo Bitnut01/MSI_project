@@ -1,6 +1,5 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from typing import Union, List, Tuple
 from matplotlib.patches import Rectangle
 
 class FuzzyInputVariable_3Trapezoids:
@@ -9,11 +8,11 @@ class FuzzyInputVariable_3Trapezoids:
     fl = 0.0 #type: float
     fr = 0.0 #type: float
     name = None #type: str
-    labels = None #type: List[str]
+    labels = None #type: list[str]
     n_functions = 3 #type: int
     n_params = 4 #type: int
 
-    def __init__(self, center: float, kernelWidth: float, fuzzyLeftWidth: float, fuzzyRightWidth, name: str, labels: List[str]):
+    def __init__(self, center: float, kernelWidth: float, fuzzyLeftWidth: float, fuzzyRightWidth, name: str, labels: list[str]):
         self.set(center, kernelWidth, fuzzyLeftWidth, fuzzyRightWidth)
         self.name = name
         self.labels = list(labels)
@@ -26,7 +25,7 @@ class FuzzyInputVariable_3Trapezoids:
         self.fr = fuzzyRightWidth
         
     
-    def get(self) -> List[float]:
+    def get(self) -> list[float]:
         return [self.c, self.w, self.fl, self.fr]
 
     def getFunctionsList(self, leftBound=-10, rightBound=10):
@@ -92,7 +91,7 @@ class FuzzyInputVariable_3Trapezoids:
             ax.add_patch(Rectangle((self.c+self.w/2,begin),self.fr,100, fill=False, hatch='/',color='b'))
             return self.c+self.w/2+self.fr/2, self.c-self.w/2-self.fl/2
         
-    def fuzzify(self, x:Union[float, np.ndarray]) -> np.ndarray:
+    def fuzzify(self, x: float | np.ndarray) -> np.ndarray:
 
         # wylicz pozycje
         x1 = self.c - 0.5 * self.w - self.fl
@@ -130,11 +129,11 @@ class FuzzyInputVariable_2Trapezoids:
     fw = 0.0 #type: float
     c = 0.0 #type: float
     name = None #type: str
-    labels = None #type: List[str]
+    labels = None #type: list[str]
     n_functions = 2 #type: int
     n_params = 2 #type: int
 
-    def __init__(self, center: float, fuzzyWidth: float, name: str, labels: List[str]):
+    def __init__(self, center: float, fuzzyWidth: float, name: str, labels: list[str]):
         self.c = center
         self.fw = fuzzyWidth
         self.name = name
@@ -146,7 +145,7 @@ class FuzzyInputVariable_2Trapezoids:
         self.fw = fuzzyWidth
         
     
-    def get(self) -> List[float]:
+    def get(self) -> list[float]:
         return [self.c, self.fw]
     
     def getFunctionsList(self, leftBound=-10, rightBound=10):
@@ -186,7 +185,7 @@ class FuzzyInputVariable_2Trapezoids:
             ax.add_patch(Rectangle((self.c-self.fw/2,begin),self.fw,100, fill=False, hatch='/',color='b'))
             return [self.c]
         
-    def fuzzify(self, x:Union[float, np.ndarray]) -> np.ndarray:
+    def fuzzify(self, x: float | np.ndarray) -> np.ndarray:
 
         # wylicz pozycje
         x1 = self.c - 0.5 * self.fw
@@ -216,21 +215,21 @@ class FuzzyInputVariable_List_Trapezoids:
     fl = 0.0 #type: float
     fr = 0.0 #type: float
     name = None #type: str
-    labels = None #type: List[str]
+    labels = None #type: list[str]
 
-    def __init__(self, listCWFLFR: List[List[float]], name: str, labels: List[str]):
+    def __init__(self, listCWFLFR: list[list[float]], name: str, labels: list[str]):
         self.name = name
         self.labels = list(labels)
         
         self.n_functions = len(listCWFLFR) #type: int
         self.n_params = 4*self.n_functions #type: int
         
-        self.functionsList = listCWFLFR #type: List[double]
+        self.functionsList = listCWFLFR #type: list[double]
 
     def set(self, *function_list):
         self.functionsList = function_list
         
-    def get(self) -> List[float]:
+    def get(self) -> list[float]:
         return self.functionsList
     
     def getFunctionsList(self):
@@ -282,7 +281,7 @@ class FuzzyInputVariable_List_Trapezoids:
         
         plt.ylim([0-ymargin, 1+ymargin])
 
-    def fuzzifyOneLinguisticValue(self, x:Union[float, np.ndarray], idx:int) -> np.ndarray:
+    def fuzzifyOneLinguisticValue(self, x: float | np.ndarray, idx: int) -> np.ndarray:
 
         c, w, fl, fr = self.functionsList[idx];
         w=abs(w)
@@ -317,7 +316,7 @@ class FuzzyInputVariable_List_Trapezoids:
 
         return yc
     
-    def fuzzify(self, x:Union[float, np.ndarray]) -> np.ndarray:
+    def fuzzify(self, x: float | np.ndarray) -> np.ndarray:
 
         output = [ self.fuzzifyOneLinguisticValue(x, i) for i in range(self.n_functions)]
 

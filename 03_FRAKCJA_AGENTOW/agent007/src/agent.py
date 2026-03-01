@@ -3,7 +3,6 @@ import random
 import numpy as np
 
 from pydantic import BaseModel
-from typing import Dict, Any
 
 from .observer import BattlefieldObserver
 from .strategy import StrategyType, StrategyModel, INPUTS_DEFINITION
@@ -125,8 +124,8 @@ class Agent007:
     def get_action(
         self, 
         current_tick: int, 
-        my_tank_status: Dict[str, Any], 
-        sensor_data: Dict[str, Any], 
+        my_tank_status: dict[str, object], 
+        sensor_data: dict[str, object], 
         enemies_remaining: int
     ) -> ActionCommand:
         

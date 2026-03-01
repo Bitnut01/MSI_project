@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 import random
@@ -46,7 +45,7 @@ def _clamp(x: float, lo: float, hi: float) -> float:
 
 @dataclass(slots=True)
 class IterState:
-    # --- FSM ruchu ---
+    # FSM ruchu
     motion_mode: MotionMode = MotionMode.FORWARD
     motion_ticks_left: int = 0
     rotation_dir: int = 1  # 1=left, -1=right
@@ -54,13 +53,13 @@ class IterState:
     desired_mode: MotionMode = MotionMode.FORWARD
     desired_speed: float = 5.0
 
-    goto_x: Optional[float] = None
-    goto_y: Optional[float] = None
+    goto_x: float | None = None
+    goto_y: float | None = None
     goto_stop_radius: float = 1.0
 
-    # --- pamięć do guardów ---
-    last_x: Optional[float] = None
-    last_y: Optional[float] = None
+    #pamięć do guardów
+    last_x: float | None = None
+    last_y: float | None = None
     stuck_timer: int = 50
 
     border_timer: int = 10
@@ -68,7 +67,7 @@ class IterState:
     # debug/telemetry
     last_heading_cmd: float = 0.0
 
-    # ===== API dla taktyk =====
+    # API dla taktyk
 
     def current_motion_state(self) -> str:
         if self.motion_mode in (MotionMode.BACKUP, MotionMode.ROTATE):
@@ -91,7 +90,7 @@ class IterState:
         self.desired_speed = float(speed)
         self.goto_stop_radius = float(stop_radius)
 
-    # ===== Guardy (oddzielne, reużywalne) =====
+    #Guardy
 
     def guard_border(
         self,
@@ -146,14 +145,14 @@ class IterState:
         return triggered
 
     @staticmethod
-    def guard_obstacle(summary: Dict[str, Any]) -> bool:
+    def guard_obstacle(summary: dict[str, object]) -> bool:
         return bool(summary["self"]["obstacle_ahead"])
 
     @staticmethod
-    def guard_terrain(summary: Dict[str, Any]) -> bool:
+    def guard_terrain(summary: dict[str, object]) -> bool:
         return int(summary["self"].get("terrain_damage", 0)) > 0
 
-    # ===== FSM: przejścia i wykonanie =====
+    # FSM: przejścia i wykonanie
 
     def _enter_backup(self, rec_cfg: RecoveryConfig) -> None:
         self.motion_mode = MotionMode.BACKUP
@@ -170,7 +169,7 @@ class IterState:
 
     def motion_step(
         self,
-        summary: Dict[str, Any],
+        summary: dict[str, object],
         *,
         rot_ang: float,
         map_cfg: MapConfig,
@@ -179,12 +178,12 @@ class IterState:
         enable_obstacle: bool = True,
         enable_stuck: bool = True,
         enable_terrein: bool = True,
-    ) -> Tuple[float, float]:
+    ) -> tuple[float, float]:
 
         curr = summary["self"]["pos"]
         curr_x = float(curr["x"])
         curr_y = float(curr["y"])
-        heading = float(summary["self"]["heading"])  # zakładam stopnie
+        heading = float(summary["self"]["heading"])
 
         # max 2 "wejścia" w recovery w jednej klatce bez rekurencji
         for _ in range(3):
@@ -194,7 +193,6 @@ class IterState:
 
                 self.motion_ticks_left -= 1
                 if self.motion_ticks_left <= 0:
-                    # po BACKUP zawsze ROTATE (dokańczalne)
                     self._enter_rotate(rec_cfg)
 
                 self.last_heading_cmd = heading_rot
@@ -211,7 +209,7 @@ class IterState:
                 self.last_heading_cmd = heading_rot
                 return speed, heading_rot
 
-            # ===== FORWARD / GOTO: tu działają guardy =====
+            #FORWARD / GOTO
             if self.motion_mode not in (MotionMode.FORWARD, MotionMode.GOTO):
                 self.motion_mode = self.desired_mode
 

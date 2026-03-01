@@ -1,5 +1,4 @@
 from abc import ABC, abstractmethod
-from typing import List, Optional, Dict, Literal, Any, Union
 from enum import Enum
 from dataclasses import dataclass, field
 
@@ -46,7 +45,7 @@ class PowerUpData:
     _id: str # unikalne ID power-up'u
     _position: Position # pozycja power-up'u na mapie
     _powerup_type: PowerUpType # typ power-up'u
-    _size: List[int] = field(default_factory=lambda: [2, 2]) # rozmiar power-up'u [szerokość, wysokość]
+    _size: list[int] = field(default_factory=lambda: [2, 2]) # rozmiar power-up'u [szerokość, wysokość]
 
     @property
     def value(self) -> int: return self.powerup_type.value['Value'] # Wartość power-up'u
@@ -68,7 +67,7 @@ class Obstacle(ABC):
     """Abstrakcyjna klasa bazowa dla przeszkód."""
     _id: str # unikalne ID przeszkody
     _position: Position # pozycja przeszkody na mapie
-    _size: List[int] = field(default_factory=lambda: [10, 10]) # rozmiar przeszkody [szerokość, wysokość]
+    _size: list[int] = field(default_factory=lambda: [10, 10]) # rozmiar przeszkody [szerokość, wysokość]
     _obstacle_type: ObstacleType = field(init=False) # typ przeszkody
     is_alive: bool = True # czy przeszkoda jest nadal obecna na mapie
 
@@ -97,7 +96,7 @@ class AntiTankSpike(Obstacle):
     obstacle_type: ObstacleType = field(default=ObstacleType.ANTI_TANK_SPIKE, init=False) # typ przeszkody
 
 
-ObstacleUnion = Union[Wall, Tree, AntiTankSpike] # Wszystkie typy przeszkód
+ObstacleUnion = Wall | Tree | AntiTankSpike
 
 # --- TERENY (Terrains) ---
 @dataclass
@@ -105,7 +104,7 @@ class Terrain(ABC):
     """Abstrakcyjna klasa bazowa dla typów terenu."""
     _id: str # unikalne ID terenu
     _position: Position # pozycja terenu na mapie
-    _size: List[int] = field(default_factory=lambda: [10, 10]) # rozmiar terenu [szerokość, wysokość]
+    _size: list[int] = field(default_factory=lambda: [10, 10]) # rozmiar terenu [szerokość, wysokość]
     
     _terrain_type: str = field(init=False) # typ terenu
     _movement_speed_modifier: float = field(init=False) # modyfikator prędkości ruchu (0.0 = zatrzymany, 1.0 = normalna prędkość)
@@ -115,7 +114,7 @@ class Terrain(ABC):
 @dataclass
 class Grass(Terrain):
     """Trawa: Brak efektu."""
-    _terrain_type: Literal["Grass"] = field(default="Grass", init=False) # typ terenu
+    _terrain_type: str = field(default="Grass", init=False) # typ terenu
     _movement_speed_modifier: float = 1 # modyfikator prędkości ruchu 
     _deal_damage: int = 0 # obrażenia zadawane co tick
 
@@ -123,7 +122,7 @@ class Grass(Terrain):
 @dataclass
 class Road(Terrain):
     """Droga: Zwiększa prędkość ruchu."""
-    _terrain_type: Literal["Road"] = field(default="Road", init=False) # typ terenu
+    _terrain_type: str = field(default="Road", init=False) # typ terenu
     _movement_speed_modifier: float = 1.5 # modyfikator prędkości ruchu
     _deal_damage: int = 0 # obrażenia zadawane co tick
 
@@ -131,7 +130,7 @@ class Road(Terrain):
 @dataclass
 class Swamp(Terrain):
     """Bagno: Spowalnia ruch."""
-    _terrain_type: Literal["Swamp"] = field(default="Swamp", init=False) # typ terenu
+    _terrain_type: str = field(default="Swamp", init=False) # typ terenu
     _movement_speed_modifier: float = 0.4 # modyfikator prędkości ruchu
     _deal_damage: int = 0 # obrażenia zadawane co tick
 
@@ -139,7 +138,7 @@ class Swamp(Terrain):
 @dataclass
 class PotholeRoad(Terrain):
     """Droga z Dziurami: Spowalnia i zadaje minimalne obrażenia."""
-    _terrain_type: Literal["PotholeRoad"] = field(default="PotholeRoad", init=False) # typ terenu
+    _terrain_type: str = field(default="PotholeRoad", init=False) # typ terenu
     _movement_speed_modifier: float = 0.95 # modyfikator prędkości ruchu
     _deal_damage: int = 1 # obrażenia zadawane co tick
 
@@ -147,12 +146,12 @@ class PotholeRoad(Terrain):
 @dataclass
 class Water(Terrain):
     """Woda: Spowalnia i zadaje obrażenia."""
-    _terrain_type: Literal["Water"] = field(default="Water", init=False) # typ terenu
+    _terrain_type: str = field(default="Water", init=False) # typ terenu
     _movement_speed_modifier: float = 0.7 # modyfikator prędkości ruchu
     _deal_damage: int = 2 # obrażenia zadawane co tick
 
 
-TerrainUnion = Union[Grass, Road, Swamp, PotholeRoad, Water] # Wszystkie typy terenów
+TerrainUnion = Grass | Road | Swamp | PotholeRoad | Water
 
 # --- DANE SENSORYCZNE CZOŁGU (Tank Sensor Data) ---
 @dataclass
@@ -171,10 +170,10 @@ class SeenTank:
 @dataclass
 class TankSensorData:
     """Dane wykryte przez systemy sensoryczne czołgu."""
-    seen_tanks: List[SeenTank] # Lista widocznych wrogich czołgów
-    seen_powerups: List[PowerUpData] # Lista widocznych power-up'ów
-    seen_obstacles: List[ObstacleUnion] # Lista widocznych przeszkód
-    seen_terrains: List[TerrainUnion] # Lista widocznych terenów
+    seen_tanks: list[SeenTank] # Lista widocznych wrogich czołgów
+    seen_powerups: list[PowerUpData] # Lista widocznych power-up'ów
+    seen_obstacles: list[ObstacleUnion] # Lista widocznych przeszkód
+    seen_terrains: list[TerrainUnion] # Lista widocznych terenów
 
 
 # --- CZOŁGI (Tanks) ---
@@ -193,29 +192,29 @@ class Tank(ABC):
     _heading_spin_rate: float # maksymalna prędkość obrotu kadłuba (stopnie na tick)
     _max_hp: int # maksymalna ilość punktów życia
     _max_shield: int # maksymalna ilość punktów osłony
-    _size: List[int] = field(default_factory=lambda: [5, 5]) # rozmiar czołgu [szerokość, wysokość]
-    _max_ammo: Dict[AmmoType, int] # maksymalna pojemność amunicji
+    _size: list[int] = field(default_factory=lambda: [5, 5]) # rozmiar czołgu [szerokość, wysokość]
+    _max_ammo: dict[AmmoType, int] # maksymalna pojemność amunicji
 
     # Dynamiczne statystyki
     hp: int # aktualne punkty życia
     shield: int # aktualne punkty osłony
     position: Position # aktualna pozycja na mapie
     move_speed: float # aktualna prędkość ruchu (0 = stojący, dodatnia = do przodu, ujemna = do tyłu, max = _top_speed)
-    ammo: Dict[AmmoType, AmmoSlot] # aktualny ekwipunek amunicji
-    ammo_loaded: Optional[AmmoType] = None # aktualnie załadowany typ amunicji
+    ammo: dict[AmmoType, AmmoSlot] # aktualny ekwipunek amunicji
+    ammo_loaded: AmmoType | None = None # aktualnie załadowany typ amunicji
     current_reload_progress: int = 0 # <--- 0 = gotowy, >0 = czas do końca przeładowania (w tickach)
     barrel_angle: float = 0.0 # kąt lufy
     heading: float = 0.0 # kąt kadłuba
     is_overcharged: bool = False # czy czołg jest w trybie overcharge (następny strzał zada podwójne obrażenia)
 
     @abstractmethod
-    def get_base_ammo(self) -> Dict[AmmoType, AmmoSlot]: pass
+    def get_base_ammo(self) -> dict[AmmoType, AmmoSlot]: pass
     """Zwraca bazowy ekwipunek amunicji dla danego typu czołgu."""
 
 
 @dataclass(kw_only=True)
 class LightTank(Tank):
-    _tank_type: Literal["LightTank"] = field(default="LightTank", init=False)
+    _tank_type: str = field(default="LightTank", init=False)
     hp: int = 80 # punkty życia
     shield: int = 30 # punkty osłony
     _max_hp: int = hp # maksymalna ilość punktów życia
@@ -225,7 +224,7 @@ class LightTank(Tank):
     _vision_angle: float = 40 # kąt widzenia 
     _barrel_spin_rate: float = 90 # prędkość obrotu lufy/tick
     _heading_spin_rate: float = 70 # prędkość obrotu kadłuba/tick
-    _max_ammo: Dict[AmmoType, int] = field( # maksymalna pojemność amunicji
+    _max_ammo: dict[AmmoType, int] = field( # maksymalna pojemność amunicji
         default_factory=lambda: {
             AmmoType.HEAVY: 1,
             AmmoType.LIGHT: 15,
@@ -233,7 +232,7 @@ class LightTank(Tank):
         }
     )
 
-    def get_base_ammo(self) -> Dict[AmmoType, AmmoSlot]:
+    def get_base_ammo(self) -> dict[AmmoType, AmmoSlot]:
         """Zwraca bazowy ekwipunek amunicji dla lekkiego czołgu."""
         return {AmmoType.HEAVY: AmmoSlot(AmmoType.HEAVY, 1),
                 AmmoType.LIGHT: AmmoSlot(AmmoType.LIGHT, 15),
@@ -242,7 +241,7 @@ class LightTank(Tank):
 
 @dataclass(kw_only=True)
 class HeavyTank(Tank):
-    _tank_type: Literal["HeavyTank"] = field(default="HeavyTank", init=False)
+    _tank_type: str = field(default="HeavyTank", init=False)
     hp: int = 120 # punkty życia
     shield: int = 80 # punkty osłony
     _max_hp: int = hp # maksymalna ilość punktów życia
@@ -252,7 +251,7 @@ class HeavyTank(Tank):
     _vision_angle: float = 60 # kąt widzenia
     _barrel_spin_rate: float = 70 # prędkość obrotu lufy/tick
     _heading_spin_rate: float = 30 # prędkość obrotu kadłuba/tick
-    _max_ammo: Dict[AmmoType, int] = field(
+    _max_ammo: dict[AmmoType, int] = field(
         default_factory=lambda: { # maksymalna pojemność amunicji
             AmmoType.HEAVY: 5,
             AmmoType.LIGHT: 10,
@@ -260,7 +259,7 @@ class HeavyTank(Tank):
         }
     )
 
-    def get_base_ammo(self) -> Dict[AmmoType, AmmoSlot]:
+    def get_base_ammo(self) -> dict[AmmoType, AmmoSlot]:
         """Zwraca bazowy ekwipunek amunicji dla czołgu ciężkiego."""
         return {AmmoType.HEAVY: AmmoSlot(AmmoType.HEAVY, 5),
                 AmmoType.LIGHT: AmmoSlot(AmmoType.LIGHT, 10),
@@ -269,7 +268,7 @@ class HeavyTank(Tank):
 
 @dataclass(kw_only=True)
 class Sniper(Tank):
-    _tank_type: Literal["Sniper"] = field(default="Sniper", init=False)
+    _tank_type: str = field(default="Sniper", init=False)
     hp: int = 40 # ilość punktów życia
     shield: int = 30 # ilość punktów osłony
     _max_hp: int = hp # maksymalna ilość punktów życia
@@ -279,7 +278,7 @@ class Sniper(Tank):
     _vision_angle: float = 20 # kąt widzenia
     _barrel_spin_rate: float = 100 # prędkość obrotu lufy/tick
     _heading_spin_rate: float = 45 # prędkość obrotu kadłuba/tick
-    _max_ammo: Dict[AmmoType, int] = field( # maksymalna pojemność amunicji
+    _max_ammo: dict[AmmoType, int] = field( # maksymalna pojemność amunicji
         default_factory=lambda: {
             AmmoType.HEAVY: 1,
             AmmoType.LIGHT: 5,
@@ -287,25 +286,25 @@ class Sniper(Tank):
         }
     )
 
-    def get_base_ammo(self) -> Dict[AmmoType, AmmoSlot]:
+    def get_base_ammo(self) -> dict[AmmoType, AmmoSlot]:
         """Zwraca bazowy ekwipunek amunicji dla Snipera."""
         return {AmmoType.HEAVY: AmmoSlot(AmmoType.HEAVY, 1),
                 AmmoType.LIGHT: AmmoSlot(AmmoType.LIGHT, 5),
                 AmmoType.LONG_DISTANCE: AmmoSlot(AmmoType.LONG_DISTANCE, 10)}
 
 
-TankUnion = Union[LightTank, HeavyTank, Sniper] # Wszystkie typy czołgów
+TankUnion = LightTank | HeavyTank | Sniper
 
 
 @dataclass(kw_only=True)
 class MapInfo:
     """Informacje o mapie (rozmiar, przeszkody, tereny, czołgi, power-upy)."""
     _map_seed: str # Unikalny identyfikator mapy
-    _size: List[int] = field(default_factory=lambda: [500, 500]) # Rozmiar mapy [szerokość, wysokość]
-    obstacle_list: List[ObstacleUnion] # Lista przeszkód na mapie
-    powerup_list: List[PowerUpData] # Lista power-up'ów na mapie
-    terrain_list: List[TerrainUnion] # Lista terenów na mapie
-    all_tanks: List[TankUnion] # Lista wszystkich czołgów na mapie
+    _size: list[int] = field(default_factory=lambda: [500, 500]) # Rozmiar mapy [szerokość, wysokość]
+    obstacle_list: list[ObstacleUnion] # Lista przeszkód na mapie
+    powerup_list: list[PowerUpData] # Lista power-up'ów na mapie
+    terrain_list: list[TerrainUnion] # Lista terenów na mapie
+    all_tanks: list[TankUnion] # Lista wszystkich czołgów na mapie
 
 
 # ==============================================================================
@@ -354,7 +353,7 @@ class ActionCommand:
     """Docelowa prędkość ruchu czołgu (silnik ograniczy prędkość zgodnie z top_speed).  
        Prędkość dodatnia oznacza jazdę do przodu, ujemna - do tyłu. Przy wartości 0 czołg stoi w miejscu."""
     
-    ammo_to_load: Optional[AmmoType] = None
+    ammo_to_load: AmmoType | None = None
     """Typ amunicji do załadowania."""
     
     should_fire: bool = False

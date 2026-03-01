@@ -1,7 +1,6 @@
 import math
 import numpy as np
 import random
-from typing import Dict, Tuple, List, Any
 import heapq
 
 from .strategy import StrategyType
@@ -33,14 +32,14 @@ class Commander():
 # ============================================================================        
     
 
-def get_best_ammo(my_tank: Dict[str, Any]) -> str:
+def get_best_ammo(my_tank: dict[str, object]) -> str:
 
     ammo_data = my_tank.get("ammo", {})
     if not ammo_data:
         return "DEFAULT"
     return max(ammo_data, key=lambda k: ammo_data[k].get("count", 0))
 
-def get_heading_to_pos(my_tank: Dict[str, Any], target_pos: Dict[str, float]) -> float:
+def get_heading_to_pos(my_tank: dict[str, object], target_pos: dict[str, float]) -> float:
 
     my_angle = my_tank.get("heading", 0.0) 
     dx = target_pos["x"] - my_tank["position"]["x"]
@@ -71,11 +70,11 @@ def _rec_cfg_default() -> RecoveryConfig:
 
 
 def _get_escape_target(
-    summary: Dict[str, Any],
+    summary: dict[str, object],
     observer: BattlefieldObserver,
     *,
     retreat_dist: float,
-) -> Tuple[float, float, bool]:
+) -> tuple[float, float, bool]:
 
     nearest = summary["radar"]["nearest_enemy"]
     my_pos = summary["self"]["pos"]
@@ -125,7 +124,7 @@ def _clamp_rotation_delta(delta_deg: float, max_step: float) -> float:
 def _clamp(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, x))
 
-def _get_top_speed(my_tank: Any, default: float = 4.0) -> float:
+def _get_top_speed(my_tank: object, default: float = 4.0) -> float:
 
     if isinstance(my_tank, dict):
         return float(my_tank.get("_top_speed", default))
@@ -137,7 +136,7 @@ def _get_top_speed(my_tank: Any, default: float = 4.0) -> float:
 # ============================================================================
 
 def tactic_attack(
-    summary: Dict[str, Any],
+    summary: dict[str, object],
     observer: BattlefieldObserver,
     state: IterState,
 ) -> ActionCommand:
@@ -155,7 +154,7 @@ def tactic_attack(
     def _clamp_rotation_delta(delta: float, max_abs: float) -> float:
         return _clamp(delta, -abs(max_abs), abs(max_abs))
 
-    def _as_enum_name(v: Any) -> Optional[str]:
+    def _as_enum_name(v: object) -> str | None:
         if v is None:
             return None
         name = getattr(v, "name", None) 
@@ -166,7 +165,7 @@ def tactic_attack(
             return v.split(".")[-1]
         return str(v)
 
-    def _ammo_cmd_value(v: Any) -> Optional[str]:
+    def _ammo_cmd_value(v: object) -> str | None:
         name = _as_enum_name(v)
         if name is None:
             return None
@@ -314,7 +313,7 @@ def tactic_attack(
         should_fire=should_fire,
     )
 
-def tactic_flee(summary: Dict[str, Any], observer: BattlefieldObserver, state: IterState) -> ActionCommand:
+def tactic_flee(summary: dict[str, object], observer: BattlefieldObserver, state: IterState) -> ActionCommand:
     ammo_to_load = get_best_ammo(observer.my_tank)
     map_cfg = _map_cfg_from_observer(observer)
     rec_cfg = _rec_cfg_default()
@@ -434,7 +433,7 @@ def tactic_flee(summary: Dict[str, Any], observer: BattlefieldObserver, state: I
         ammo_to_load=ammo_to_load,
         should_fire=bool(summary["tactical"]["can_fire"]),)
 
-def tactic_save(summary: Dict[str, Any], observer: BattlefieldObserver, state: IterState) -> ActionCommand:
+def tactic_save(summary: dict[str, object], observer: BattlefieldObserver, state: IterState) -> ActionCommand:
     
     ammo_to_load = get_best_ammo(observer.my_tank)
     map_cfg = _map_cfg_from_observer(observer)
@@ -549,8 +548,8 @@ def tactic_search(summary, observer, state: IterState) -> ActionCommand:
         should_fire=False,
     )
 
-def tactic_powerup(summary: Dict[str, Any], observer: BattlefieldObserver, state: IterState) -> ActionCommand:
-    powerups: Dict[str, Dict[str, Any]] = (
+def tactic_powerup(summary: dict[str, object], observer: BattlefieldObserver, state: IterState) -> ActionCommand:
+    powerups: dict[str, dict[str, object]] = (
         summary.get("logistics", {}).get("powerups") or {}
     )
     if not powerups:
@@ -570,7 +569,7 @@ def tactic_powerup(summary: Dict[str, Any], observer: BattlefieldObserver, state
         n = type_name.upper()
         return ("REPAIR" in n) or ("HEAL" in n) or ("MED" in n)
 
-    def score(type_name: str, p: Dict[str, Any]) -> float:
+    def score(type_name: str, p: dict[str, object]) -> float:
         dist = float(p.get("dist", 1e9))
         val = float(p.get("val", 0))
 
@@ -586,7 +585,7 @@ def tactic_powerup(summary: Dict[str, Any], observer: BattlefieldObserver, state
         return heal_boost + 10.0 * efficiency - far_penalty
 
 
-    locked: Optional[Tuple[str, Dict[str, Any]]] = None
+    locked: tuple[str, dict[str, object]] | None = None
     if state.goto_x is not None and state.goto_y is not None:
         gx = float(state.goto_x)
         gy = float(state.goto_y)
@@ -672,7 +671,7 @@ def tactic_powerup(summary: Dict[str, Any], observer: BattlefieldObserver, state
     )
     
 
-def tactic_reload(summary: Dict[str, Any], observer: BattlefieldObserver, state: IterState) -> ActionCommand:
+def tactic_reload(summary: dict[str, object], observer: BattlefieldObserver, state: IterState) -> ActionCommand:
 
     nearest = summary["radar"]["nearest_enemy"]
 
